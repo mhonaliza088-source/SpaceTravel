@@ -31,6 +31,19 @@ local CFG = {
 	STEER_RATE = 0.7,         -- thumbstick steering speed (rad/s)
 	MAX_TILT = 80,            -- max tilt in degrees
 	CAM_DIST = 78,
+	-- Sound IDs. These are Roblox built-in sounds; if one is silent for you, paste any other
+	-- rbxassetid://... audio here (the rocket rumble and wind loops use "engine" and "wind").
+	SOUNDS = {
+		click = "rbxasset://sounds/clickfast.wav",
+		beep = "rbxasset://sounds/electronicpingshort.wav",
+		ignite = "rbxasset://sounds/Launching rocket.wav",
+		engine = "rbxasset://sounds/Rocket whoosh 01.wav",
+		warp = "rbxasset://sounds/Rocket whoosh 01.wav",
+		boom = "rbxasset://sounds/impact_explosion_03.mp3",
+		pickup = "rbxasset://sounds/electronicpingshort.wav",
+		reentry = "rbxasset://sounds/Rocket whoosh 01.wav",
+		wind = "rbxasset://sounds/Rocket whoosh 01.wav",
+	},
 }
 
 ----------------------------------------------------------------
@@ -41,6 +54,28 @@ if genv.NASA_ROCKET_CLEANUP then pcall(genv.NASA_ROCKET_CLEANUP) end
 
 local conns = {}
 local function track(c) conns[#conns + 1] = c return c end
+
+local SoundService = game:GetService("SoundService")
+local function sfx(id, vol, speed)
+	if not id or id == "" then return end
+	local snd = Instance.new("Sound")
+	snd.SoundId = id
+	snd.Volume = vol or 0.6
+	snd.PlaybackSpeed = speed or 1
+	snd.Parent = SoundService
+	snd:Play()
+	Debris:AddItem(snd, 8)
+	return snd
+end
+local function loopSound(name, id)
+	local snd = SoundService:FindFirstChild(name) or Instance.new("Sound")
+	snd.Name = name
+	snd.SoundId = id
+	snd.Looped = true
+	snd.Volume = 0
+	snd.Parent = SoundService
+	return snd
+end
 
 local WHITE = Color3.fromRGB(238, 240, 245)
 local BLACK = Color3.fromRGB(25, 25, 30)
@@ -404,6 +439,7 @@ local function setStatus(msg, col)
 end
 
 local function press(btn)
+	sfx(CFG.SOUNDS.click, 0.5, 1)
 	local orig = btn.BackgroundColor3
 	btn.BackgroundColor3 = Color3.fromRGB(0, 90, 110)
 	TweenService:Create(btn, TweenInfo.new(0.25), { BackgroundColor3 = orig }):Play()
@@ -572,11 +608,14 @@ local function launch()
 			cdLabel.TextColor3 = (i <= 2) and RED or AMBER
 			cdLabel.Visible = true
 			setStatus("IGNITION SEQUENCE T-" .. i, AMBER)
+			sfx(CFG.SOUNDS.beep, 0.7, i <= 2 and 1.5 or 1)
+			if i == 2 then sfx(CFG.SOUNDS.ignite, 0.9, 1) end
 			if i <= 2 then rec.ignite = true end
 			task.wait(1)
 		end
 		if rec.dead then return end
 		rec.state = "FLY"
+		sfx(CFG.SOUNDS.boom, 0.7, 0.7)
 		throttle = math.max(throttle, 0.35)
 		cdLabel.Text = "LIFTOFF!"
 		cdLabel.TextColor3 = GREEN
@@ -596,6 +635,7 @@ local function releaseArms()
 		return
 	end
 	rec.boosters = false
+	sfx(CFG.SOUNDS.boom, 0.8, 1.2)
 	local pivot = rec.model:GetPivot()
 	for _, bm in ipairs(rec.boosterModels) do
 		local side = bm:GetAttribute("Side") or 1
@@ -642,6 +682,8 @@ local origGravity = workspace.Gravity
 local sunDir = Vector3.new(0.6, 0.5, -0.6).Unit
 local warpM = nil
 local rng = Random.new(7)
+local engineSnd = loopSound("NasaEngineLoop", CFG.SOUNDS.engine)
+local windSnd = loopSound("NasaWindLoop", CFG.SOUNDS.wind)
 
 local flash = new("Frame", {
 	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1,
@@ -679,6 +721,17 @@ local function rampEnv(t) -- 0..1 : daylight -> dark while leaving the atmospher
 	for a, v in pairs(envSnap.atmos) do a.Density = v[1] * (1 - t) a.Haze = v[2] * (1 - t) end
 end
 
+local function makeSpaceSky()
+	local sky = Instance.new("Sky")
+	sky.Name = "NasaSpaceSky"
+	for _, f in ipairs({ "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp" }) do
+		sky[f] = "rbxasset://textures/blackBkg_square.png"
+	end
+	sky.CelestialBodiesShown = false
+	sky.StarCount = 5000
+	sky.Parent = Lighting
+end
+
 local function applySpaceEnv()
 	snapEnv()
 	local cc = Lighting:FindFirstChild("NasaSpaceCC")
@@ -690,14 +743,7 @@ local function applySpaceEnv()
 			envSnap.skies[#envSnap.skies + 1] = o
 		end
 	end
-	if not Lighting:FindFirstChild("NasaSpaceSky") then
-		local sky = Instance.new("Sky")
-		sky.Name = "NasaSpaceSky"
-		for _, f in ipairs({ "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp" }) do sky[f] = "" end
-		sky.CelestialBodiesShown = false
-		sky.StarCount = 5000
-		sky.Parent = Lighting
-	end
+	if not Lighting:FindFirstChild("NasaSpaceSky") then makeSpaceSky() end
 	Lighting.ClockTime = 16.5
 	Lighting.Brightness = 3
 	Lighting.Ambient = Color3.fromRGB(22, 24, 38)
@@ -858,6 +904,7 @@ local function makePickup(parent, id, cf)
 	pp.Parent = p
 	pp.Triggered:Connect(function()
 		inv[id] = true
+		sfx(CFG.SOUNDS.pickup, 0.8, 1.6)
 		p:Destroy()
 		toast("COLLECTED: " .. it.name:upper(), GREEN)
 		if onInvChanged then onInvChanged() end
@@ -1298,6 +1345,7 @@ local function detachSpace()
 		if SP[k] then SP[k].Parent = nil end
 	end
 	if SP.surface then SP.surface:Destroy() SP.surface = nil end
+	if SP.approach then SP.approach:Destroy() SP.approach = nil end
 end
 
 local function updateEarth(center)
@@ -1362,6 +1410,7 @@ local function showScene(name)
 	scene = name
 	clearPlanetEnv()
 	attachSpace()
+	if SP.approach then SP.approach:Destroy() SP.approach = nil end
 	SP.sun.Size = Vector3.new(2000, 2000, 2000)
 	local base, dist = SPACE_ORIGIN, 30000
 	if name == "ORBIT" then
@@ -1432,6 +1481,8 @@ end
 
 local function warpSeq(r, duration, swapFn)
 	local list = startWarp()
+	local ws = sfx(CFG.SOUNDS.warp, 0.9, 0.7)
+	if ws then ws.Looped = true end
 	local t, swapped = 0, false
 	while t < duration do
 		local dt = RunService.RenderStepped:Wait()
@@ -1441,6 +1492,7 @@ local function warpSeq(r, duration, swapFn)
 		local f
 		if a < 0.25 then f = (a / 0.25) ^ 1.5 elseif a < 0.75 then f = 1 else f = ((1 - a) / 0.25) ^ 1.5 end
 		r.dispSpeed = f * 299792
+		if ws then ws.PlaybackSpeed = 0.7 + f * 1.1 end
 		camera.FieldOfView = baseFOV + 50 * f
 		local fl = 1
 		if a > 0.42 and a <= 0.5 then fl = 1 - (a - 0.42) / 0.08
@@ -1449,6 +1501,7 @@ local function warpSeq(r, duration, swapFn)
 		flash.BackgroundTransparency = fl
 		if not swapped and a >= 0.5 then
 			swapped = true
+			sfx(CFG.SOUNDS.boom, 0.8, 0.5)
 			swapFn()
 		end
 		local pv = r.model:GetPivot()
@@ -1462,6 +1515,7 @@ local function warpSeq(r, duration, swapFn)
 	flash.BackgroundTransparency = 1
 	camera.FieldOfView = baseFOV
 	r.dispSpeed = nil
+	if ws then ws:Stop() ws:Destroy() end
 	if warpM then warpM:Destroy() warpM = nil end
 end
 
@@ -1494,6 +1548,7 @@ local function landAt(r, ground, startH, dur, dustColor)
 	r.pos = Vector3.new(ground.X, gy, ground.Z)
 	setPivot(r)
 	em:Emit(80)
+	sfx(CFG.SOUNDS.boom, 0.9, 0.45)
 	em.Rate = 0
 	r.forceThr = nil
 	Debris:AddItem(dust, 6)
@@ -1508,6 +1563,184 @@ local function refurbish(r)
 	r.pitch, r.roll, r.ignite, r.entering = 0, 0, false, false
 	r.baseRot = r.origin.Rotation
 	r.pos = model:GetPivot().Position
+end
+
+-- ===== approach: a real round planet in the sky, dive through its atmosphere =====
+local APPROACH_ORIGIN = Vector3.new(300000, 5000, 300000)
+local D_START, D_END = 9000, 1060 -- rocket distance from the planet's centre (planet radius = 1000)
+
+local SPHERES = {
+	MOON = { base = Color3.fromRGB(170, 170, 176),
+		patches = { { 30, Color3.fromRGB(110, 110, 118), Color3.fromRGB(130, 130, 138), 80, 220 }, { 20, Color3.fromRGB(200, 200, 205), Color3.fromRGB(225, 225, 230), 60, 160 } } },
+	MARS = { base = Color3.fromRGB(186, 98, 62), caps = true, atmo = Color3.fromRGB(230, 160, 120), atmoT = 0.92,
+		patches = { { 26, Color3.fromRGB(120, 60, 40), Color3.fromRGB(150, 78, 52), 120, 320 }, { 14, Color3.fromRGB(215, 150, 105), Color3.fromRGB(230, 170, 125), 100, 260 } } },
+	MERCURY = { base = Color3.fromRGB(125, 115, 106),
+		patches = { { 50, Color3.fromRGB(80, 74, 70), Color3.fromRGB(105, 98, 92), 60, 200 }, { 18, Color3.fromRGB(165, 155, 145), Color3.fromRGB(190, 180, 170), 50, 150 } } },
+	VENUS = { base = Color3.fromRGB(224, 190, 120), atmo = Color3.fromRGB(240, 200, 110), atmoT = 0.8,
+		patches = { { 30, Color3.fromRGB(235, 205, 140), Color3.fromRGB(205, 165, 95), 200, 420 } } },
+	IO = { base = Color3.fromRGB(226, 200, 96), atmo = Color3.fromRGB(255, 225, 130), atmoT = 0.94,
+		patches = { { 26, Color3.fromRGB(150, 100, 40), Color3.fromRGB(190, 120, 50), 60, 200 }, { 12, Color3.fromRGB(40, 30, 25), Color3.fromRGB(60, 45, 35), 50, 120 },
+			{ 14, Color3.fromRGB(240, 230, 170), Color3.fromRGB(250, 245, 200), 80, 200 } } },
+	EUROPA = { base = Color3.fromRGB(214, 230, 240),
+		patches = { { 36, Color3.fromRGB(150, 90, 66), Color3.fromRGB(175, 110, 80), 80, 260 } } },
+	PLUTO = { base = Color3.fromRGB(200, 180, 160), heart = true, atmo = Color3.fromRGB(140, 170, 235), atmoT = 0.95,
+		patches = { { 22, Color3.fromRGB(130, 100, 85), Color3.fromRGB(160, 130, 110), 120, 300 } } },
+	ASTEROID = { base = Color3.fromRGB(98, 90, 82),
+		patches = { { 40, Color3.fromRGB(65, 60, 55), Color3.fromRGB(85, 78, 70), 60, 200 } } },
+	JUPITER = { special = buildJupiter, atmo = Color3.fromRGB(230, 190, 150), atmoT = 0.9, tilt = 3 },
+	SATURN = { base = Color3.fromRGB(232, 212, 160), atmo = Color3.fromRGB(235, 215, 165), atmoT = 0.9, tilt = 27,
+		bands = { { -40, Color3.fromRGB(210, 185, 130) }, { -20, Color3.fromRGB(240, 225, 185) }, { 0, Color3.fromRGB(205, 180, 125) },
+			{ 20, Color3.fromRGB(238, 222, 180) }, { 40, Color3.fromRGB(215, 190, 135) } },
+		rings = { { 1500, 160, Color3.fromRGB(205, 180, 135), 0.3 }, { 1750, 200, Color3.fromRGB(225, 205, 160), 0.25 },
+			{ 2050, 180, Color3.fromRGB(190, 165, 120), 0.35 }, { 2350, 120, Color3.fromRGB(215, 195, 150), 0.4 } } },
+	URANUS = { base = Color3.fromRGB(160, 225, 232), atmo = Color3.fromRGB(160, 230, 240), atmoT = 0.9, tilt = 97,
+		bands = { { -30, Color3.fromRGB(145, 215, 225) }, { 0, Color3.fromRGB(175, 235, 242) }, { 30, Color3.fromRGB(150, 220, 230) } },
+		rings = { { 1450, 40, Color3.fromRGB(190, 230, 240), 0.5 }, { 1620, 30, Color3.fromRGB(170, 215, 230), 0.55 } } },
+	NEPTUNE = { base = Color3.fromRGB(52, 84, 196), atmo = Color3.fromRGB(90, 130, 240), atmoT = 0.9, tilt = 10,
+		bands = { { -30, Color3.fromRGB(40, 66, 170) }, { 10, Color3.fromRGB(85, 120, 230) }, { 40, Color3.fromRGB(60, 92, 205) } },
+		patches = { { 1, Color3.fromRGB(20, 28, 80), Color3.fromRGB(20, 28, 80), 300, 300 } } },
+}
+
+local function buildPlanetSphere(key)
+	local sp = SPHERES[key]
+	if sp.special then
+		local sm = sp.special()
+		if sp.atmo then mkBall(sm, "Atmo", 2046, sp.atmo, Enum.Material.Neon, sp.atmoT or 0.88) end
+		return sm
+	end
+	local m = Instance.new("Model")
+	m.Name = "NasaApproachPlanet"
+	rootPart(m)
+	mkBall(m, "Body", 2000, sp.base)
+	for _, pt in ipairs(sp.patches or {}) do
+		for _ = 1, pt[1] do
+			blob(m, rdir(), 996, rng:NextNumber(pt[4], pt[5]), 12, pt[2]:Lerp(pt[3], rng:NextNumber()))
+		end
+	end
+	for _, b in ipairs(sp.bands or {}) do
+		local y, rad = math.sin(math.rad(b[1])), math.cos(math.rad(b[1]))
+		for i = 1, 14 do
+			local lon = i / 14 * math.pi * 2
+			blob(m, Vector3.new(math.cos(lon) * rad, y, math.sin(lon) * rad).Unit, 996, 440, 12, b[2])
+		end
+	end
+	if sp.caps then
+		blob(m, Vector3.yAxis, 996, 520, 12, WHITE)
+		blob(m, -Vector3.yAxis, 996, 560, 12, WHITE)
+	end
+	if sp.heart then blob(m, Vector3.new(0.35, 0.15, 1).Unit, 996, 650, 12, Color3.fromRGB(238, 228, 218)) end
+	for _, rg in ipairs(sp.rings or {}) do
+		for i = 1, 64 do
+			local a = i / 64 * math.pi * 2
+			local pos = Vector3.new(math.cos(a) * rg[1], 0, math.sin(a) * rg[1])
+			local seg = mkPart(m, "Ring", Vector3.new(rg[2], 2, rg[1] * 2 * math.pi / 64 * 1.15),
+				CFrame.lookAt(pos, pos + Vector3.new(-math.sin(a), 0, math.cos(a))), rg[3], Enum.Material.SmoothPlastic)
+			seg.Transparency = rg[4]
+			seg.CanQuery = false
+			seg.CastShadow = false
+		end
+	end
+	if sp.atmo then mkBall(m, "Atmo", 2046, sp.atmo, Enum.Material.Neon, sp.atmoT or 0.88) end
+	return m
+end
+
+local function flashTo(color, target, t)
+	if color then flash.BackgroundColor3 = color end
+	TweenService:Create(flash, TweenInfo.new(t), { BackgroundTransparency = target }):Play()
+end
+
+local function cloudColor(key)
+	if key == "EARTH" then return Color3.fromRGB(238, 242, 250) end
+	local P = PLANETS[key]
+	return (P.env and P.env.atmo and P.env.atmo.Color) or P.dust
+end
+
+local function hasAtmo(key)
+	if key == "EARTH" then return true end
+	local P = PLANETS[key]
+	return P.env ~= nil and P.env.atmo ~= nil
+end
+
+-- deep space view with the destination as a big round sphere (always night up here)
+local function showApproach(key)
+	scene = "APPROACH"
+	clearPlanetEnv()
+	attachSpace()
+	workspace.Gravity = 0
+	SP.moon.Parent = nil
+	SP.iss.Parent = nil
+	if SP.surface then SP.surface:Destroy() SP.surface = nil end
+	if SP.approach then SP.approach:Destroy() SP.approach = nil end
+	SP.sun.Size = Vector3.new(2000, 2000, 2000)
+	if key == "EARTH" then
+		SP.earth.Parent = worldFolder
+		SP.clouds.Parent = worldFolder
+		SP.earthCenter = APPROACH_ORIGIN
+	else
+		SP.earth.Parent = nil
+		SP.clouds.Parent = nil
+		SP.earthCenter = APPROACH_ORIGIN + Vector3.new(0, 90000, 0)
+		SP.approachTilt = SPHERES[key].tilt or 5
+		local pm = buildPlanetSphere(key)
+		pm.Parent = worldFolder
+		pm:PivotTo(CFrame.new(APPROACH_ORIGIN) * CFrame.Angles(0, 0, math.rad(SP.approachTilt)))
+		SP.approach = pm
+	end
+	SP.sun.Position = APPROACH_ORIGIN + sunDir * 30000
+	SP.stars:PivotTo(CFrame.new(APPROACH_ORIGIN))
+	updateEarth(SP.earthCenter)
+end
+
+-- braking burn toward the planet: it grows, heat builds in the atmosphere, then we punch into the clouds
+local function approachIn(r, key, startH, landT)
+	local atmo, cc = hasAtmo(key), cloudColor(key)
+	local dur = 8
+	local w = math.clamp((2 * startH / landT) * dur / (D_START - D_END), 0.06, 0.9)
+	local roared = false
+	frames(r, dur, function(a)
+		local d = D_END + (D_START - D_END) * ((1 - a) ^ 2 * (1 - w) + (1 - a) * w)
+		r.pos = APPROACH_ORIGIN + Vector3.new(0, d, 0)
+		setPivot(r)
+		local heat = atmo and math.clamp((1140 - d) / 140, 0, 1) or 0
+		if heat > 0 and not roared then
+			roared = true
+			setStatus("ATMOSPHERIC ENTRY - HEAT BUILDING", RED)
+			sfx(CFG.SOUNDS.reentry, 0.9, 0.6)
+		end
+		r.forceThr = 0.55 + 0.45 * a
+		r.shakeAmt = 0.25 + heat * 1.4
+		local cover = math.clamp((a - 0.9) / 0.1, 0, 1)
+		if cover > 0 then
+			flash.BackgroundColor3 = cc
+			flash.BackgroundTransparency = 1 - cover
+		elseif heat > 0 then
+			flash.BackgroundColor3 = Color3.fromRGB(255, 120, 40)
+			flash.BackgroundTransparency = 1 - 0.5 * heat
+		else
+			flash.BackgroundTransparency = 1
+		end
+	end)
+	r.shakeAmt = nil
+end
+
+-- leaving a planet: climb through the clouds, then watch the round planet shrink below
+local function approachOut(r, key)
+	local cc = cloudColor(key)
+	flashTo(cc, 0, 0.8)
+	task.wait(0.85)
+	if r.dead then return end
+	showApproach(key)
+	r.baseRot = CFrame.new().Rotation
+	r.pitch, r.roll = 0, 0
+	r.pos = APPROACH_ORIGIN + Vector3.new(0, D_END, 0)
+	setPivot(r)
+	flashTo(cc, 1, 1.4)
+	setStatus("CLIMBING AWAY FROM " .. PLANETS[key].name, AMBER)
+	frames(r, 5, function(a)
+		r.pos = APPROACH_ORIGIN + Vector3.new(0, D_END + 4900 * a * a, 0)
+		setPivot(r)
+		r.forceThr = 0.9
+	end)
 end
 
 -- ===== enter space (called when altitude passes the limit) =====
@@ -2056,12 +2289,14 @@ travel = function(dest)
 			r.forceThr = 0.5
 			if PLANETS[from] then
 				setStatus("LIFTING OFF FROM " .. PLANETS[from].name, AMBER)
+				sfx(CFG.SOUNDS.ignite, 0.9, 1)
 				local y0 = r.pos.Y
 				frames(r, 3.5, function(a)
 					r.forceThr = 0.6 + 0.4 * a
 					r.pos = Vector3.new(r.pos.X, y0 + a * a * 350, r.pos.Z)
 					setPivot(r)
 				end)
+				approachOut(r, from)
 			else
 				setStatus("SPOOLING WARP DRIVE", AMBER)
 				frames(r, 1.2, function(a) r.forceThr = 0.5 + 0.5 * a end)
@@ -2070,15 +2305,26 @@ travel = function(dest)
 			r.forceThr = 1
 			setStatus("WARP DRIVE ENGAGED - LIGHT SPEED", CYAN)
 			warpSeq(r, 6, function()
-				if PLANETS[dest] then arriveLand(r, dest)
-				elseif dest == "ISS" then arriveOrbit(r)
-				else arriveEarth(r) end
+				if dest == "ISS" then
+					arriveOrbit(r)
+				else
+					-- drop out of warp in deep space, with the destination as a big round sphere ahead
+					showApproach(dest)
+					r.baseRot = CFrame.new().Rotation
+					r.pitch, r.roll = 0, 0
+					r.pos = APPROACH_ORIGIN + Vector3.new(0, D_START, 0)
+					setPivot(r)
+				end
 			end)
 			if r.dead then return end
 
 			if PLANETS[dest] then
 				local P = PLANETS[dest]
-				setStatus(P.name .. " APPROACH - LANDING SEQUENCE", AMBER)
+				setStatus(P.name .. " IN SIGHT - BRAKING BURN", AMBER)
+				approachIn(r, dest, P.startH, P.landT)
+				arriveLand(r, dest) -- screen is full of cloud while we swap to the surface
+				flashTo(cloudColor(dest), 1, 1.8)
+				setStatus("DESCENDING TO " .. P.name, AMBER)
 				landAt(r, P.origin, P.startH, P.landT, P.dust)
 				r.moonPad = buildPad(CFrame.new(P.origin), r.S, true)
 				r.moonPad.Parent = worldFolder
@@ -2098,11 +2344,16 @@ travel = function(dest)
 					setPivot(r)
 					r.forceThr = 0.1 + 0.4 * (1 - a)
 				end)
+				sfx(CFG.SOUNDS.boom, 0.5, 1.6)
 				r.docked = true
 				loc = "ISS"
 				setStatus("DOCKED WITH THE ISS - ZERO GRAVITY", GREEN)
 			else
-				setStatus("ATMOSPHERIC ENTRY - LANDING ON PAD", AMBER)
+				setStatus("EARTH IN SIGHT - BRAKING BURN", AMBER)
+				approachIn(r, "EARTH", 2500, 10)
+				arriveEarth(r) -- back to day: only now, inside the atmosphere
+				flashTo(cloudColor("EARTH"), 1, 1.8)
+				setStatus("DESCENDING TO YOUR LAUNCH PAD", AMBER)
 				landAt(r, r.origin.Position, 2500, 10, Color3.fromRGB(140, 120, 95))
 				refurbish(r)
 				loc = "EARTH"
@@ -2116,6 +2367,7 @@ travel = function(dest)
 		if not ok then
 			warn("[NasaRocket] " .. tostring(err))
 			r.busy, r.forceThr, r.ignite, r.state = false, nil, false, "PARKED"
+			r.shakeAmt = nil
 			flash.BackgroundTransparency = 1
 			camera.FieldOfView = baseFOV
 		end
@@ -2134,9 +2386,11 @@ SpaceCleanup = function()
 	restoreEnv()
 	spaceMode, loc, scene = false, "EARTH", nil
 	if closeTablet then closeTablet() end
-	for _, k in ipairs({ "earth", "clouds", "moon", "iss", "sun", "stars" }) do
+	for _, k in ipairs({ "earth", "clouds", "moon", "iss", "sun", "stars", "approach" }) do
 		if SP[k] then SP[k]:Destroy() SP[k] = nil end
 	end
+	engineSnd:Stop()
+	windSnd:Stop()
 	if SP.surface then SP.surface:Destroy() SP.surface = nil end
 	if warpM then warpM:Destroy() warpM = nil end
 	camera.FieldOfView = baseFOV
@@ -2156,6 +2410,9 @@ track(RunService.RenderStepped:Connect(function(dt)
 		if SP.accum > 0.06 then
 			SP.accum = 0
 			updateEarth(SP.earthCenter)
+			if scene == "APPROACH" and SP.approach then
+				SP.approach:PivotTo(CFrame.new(APPROACH_ORIGIN) * CFrame.Angles(0, 0, math.rad(SP.approachTilt or 5)) * CFrame.Angles(0, SP.spin, 0))
+			end
 		end
 		SP.starT = SP.starT + dt
 		if SP.starT > 0.3 then
@@ -2175,6 +2432,24 @@ track(RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
+	if spaceMode then
+		SP.nightT = (SP.nightT or 0) + dt
+		if SP.nightT > 0.3 then
+			SP.nightT = 0
+			for _, o in ipairs(Lighting:GetChildren()) do
+				if o:IsA("Sky") and o.Name ~= "NasaSpaceSky" then
+					o.Parent = nil
+					if envSnap then envSnap.skies[#envSnap.skies + 1] = o end
+				elseif o:IsA("Atmosphere") and o.Name ~= "NasaPlanetAtmo" and o.Density ~= 0 then
+					o.Density = 0
+					o.Haze = 0
+				end
+			end
+			if not Lighting:FindFirstChild("NasaSpaceSky") then makeSpaceSky() end
+			if Lighting.ClockTime ~= 16.5 then Lighting.ClockTime = 16.5 end
+		end
+	end
+
 	-- "Enter Rocket?" near the hatch
 	local show = false
 	if rocket and not inside and not rocket.busy and (rocket.state == "IDLE" or rocket.state == "PARKED") and hrp then
@@ -2184,7 +2459,11 @@ track(RunService.RenderStepped:Connect(function(dt)
 	enterBtn.Visible = show
 
 	if tabletOpen then updateTablet(dt) end
-	if not rocket then return end
+	if not rocket then
+		if engineSnd.IsPlaying then engineSnd:Stop() end
+		if windSnd.IsPlaying then windSnd:Stop() end
+		return
+	end
 	local r = rocket
 	local thr = r.forceThr or ((r.fuel > 0) and throttle or 0)
 
@@ -2248,6 +2527,20 @@ track(RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
+	-- engine rumble + planet wind
+	local fxBase = 0
+	if r.ignite then fxBase = (r.state == "COUNT") and 0.25 or (0.25 + thr * 0.75) end
+	engineSnd.Volume = fxBase * 0.9
+	engineSnd.PlaybackSpeed = 0.55 + fxBase * 0.6
+	if fxBase > 0 and not engineSnd.IsPlaying then engineSnd:Play()
+	elseif fxBase == 0 and engineSnd.IsPlaying then engineSnd:Stop() end
+	local PS = scene and PLANETS[scene]
+	local windTarget = (PS and PS.env and PS.env.atmo) and 0.35 or 0
+	windSnd.Volume = windSnd.Volume + (windTarget - windSnd.Volume) * math.min(1, dt * 2)
+	windSnd.PlaybackSpeed = 0.4
+	if windSnd.Volume > 0.02 and not windSnd.IsPlaying then windSnd:Play()
+	elseif windSnd.Volume <= 0.02 and windSnd.IsPlaying then windSnd:Stop() end
+
 	-- engine fx
 	for _, e in ipairs(r.engines) do
 		local base = 0
@@ -2273,7 +2566,7 @@ track(RunService.RenderStepped:Connect(function(dt)
 		local shake = 0
 		if r.state == "COUNT" and r.ignite then shake = 0.4
 		elseif r.state == "FLY" then shake = 0.1 + thr * 0.6
-		elseif r.state == "TRAVEL" then shake = 0.5 end
+		elseif r.state == "TRAVEL" then shake = r.shakeAmt or 0.5 end
 		local camPos = (pivot * CFrame.new(0, 8, CFG.CAM_DIST)).Position
 		local cf = CFrame.lookAt(camPos, pivot.Position + pivot.UpVector * 4, pivot.UpVector)
 		camera.CFrame = cf * CFrame.new((math.random() - 0.5) * shake, (math.random() - 0.5) * shake, 0)
@@ -2452,6 +2745,10 @@ genv.NASA_ROCKET_CLEANUP = function()
 	if bookTool then bookTool:Destroy() end
 	destroyRocket()
 	worldFolder:Destroy()
+	for _, n in ipairs({ "NasaEngineLoop", "NasaWindLoop" }) do
+		local so = SoundService:FindFirstChild(n)
+		if so then so:Destroy() end
+	end
 	local bg = gui.Parent and gui.Parent:FindFirstChild("NasaBookGui")
 	if bg then bg:Destroy() end
 	gui:Destroy()
