@@ -622,6 +622,8 @@ track(gnBtn.Activated:Connect(function() press(gnBtn) end)) -- does nothing, lol
 track(launchBtn.Activated:Connect(function() press(launchBtn) launch() end))
 track(exitBtn.Activated:Connect(function() press(exitBtn) exitRocket() end))
 
+-- (wrapped in a function so the main chunk stays under Luau's 200-locals limit)
+local function initSpaceSystems()
 ----------------------------------------------------------------
 -- SPACE SYSTEMS: night sky, Earth, Moon, Sun, ISS, warp, landings
 ----------------------------------------------------------------
@@ -770,11 +772,26 @@ local ITEMS = {
 	RADSUIT = { name = "Radiation Suit Module", where = "Moon - near your landing site", color = Color3.fromRGB(255, 140, 50) },
 	HULL = { name = "Pressure Hull Plate", where = "Mars - near your landing site", color = Color3.fromRGB(150, 170, 255) },
 	COATING = { name = "Acid Coating Canister", where = "Mercury - near your landing site", color = Color3.fromRGB(200, 120, 255) },
+	CRYO = { name = "Cryo Insulation Pack", where = "Mars - near your landing site", color = Color3.fromRGB(150, 235, 255) },
+	SULFUR = { name = "Sulfur Filter Unit", where = "Venus - near your landing site", color = Color3.fromRGB(240, 235, 90) },
+	DRILL = { name = "Ice Drill Bit", where = "Europa - near your landing site", color = Color3.fromRGB(255, 255, 255) },
+	GRAV = { name = "Gravity Stabilizer", where = "Asteroid Belt - big asteroid near your landing site", color = Color3.fromRGB(255, 120, 200) },
+	JOVE = { name = "Jovian Pressure Seal", where = "Jupiter - near your landing platform", color = Color3.fromRGB(255, 170, 90) },
+	RING = { name = "Ring Debris Shield", where = "Saturn - near your landing platform", color = Color3.fromRGB(255, 230, 160) },
+	METH = { name = "Methane Filter", where = "Uranus - near your landing platform", color = Color3.fromRGB(120, 255, 230) },
 }
 local REQS = {
 	MARS = { "O2", "SAMPLE" },
 	MERCURY = { "SHIELD", "RADSUIT" },
 	VENUS = { "SHIELD", "HULL", "COATING" },
+	IO = { "SHIELD", "RADSUIT", "SULFUR" },
+	EUROPA = { "CRYO", "RADSUIT", "HULL" },
+	PLUTO = { "CRYO", "O2", "DRILL" },
+	ASTEROID = { "HULL", "O2" },
+	JUPITER = { "SHIELD", "RADSUIT", "HULL", "GRAV" },
+	SATURN = { "GRAV", "JOVE", "CRYO" },
+	URANUS = { "JOVE", "RING", "CRYO" },
+	NEPTUNE = { "RING", "METH", "DRILL" },
 }
 local inv = genv.NASA_INV or {}
 genv.NASA_INV = inv -- gear is kept if you re-run the script
@@ -936,14 +953,41 @@ local function buildStars()
 	return m
 end
 
+local function buildJupiter()
+	local m = Instance.new("Model")
+	m.Name = "NasaJupiter"
+	rootPart(m)
+	mkBall(m, "JupBall", 2000, Color3.fromRGB(214, 176, 138))
+	local belt = { Color3.fromRGB(160, 108, 76), Color3.fromRGB(235, 215, 190), Color3.fromRGB(140, 92, 66) }
+	local rj = Random.new(5)
+	for _, lat in ipairs({ -50, -30, -12, 8, 25, 45 }) do
+		local y, rad = math.sin(math.rad(lat)), math.cos(math.rad(lat))
+		for i = 1, 14 do
+			local lon = (i / 14) * math.pi * 2 + rj:NextNumber(-0.1, 0.1)
+			local dir = Vector3.new(math.cos(lon) * rad, y, math.sin(lon) * rad).Unit
+			blob(m, dir, 996, 430, 14, belt[rj:NextInteger(1, #belt)])
+		end
+	end
+	blob(m, Vector3.new(0.9, -0.25, 0.35).Unit, 996, 300, 16, Color3.fromRGB(190, 70, 45))
+	return m
+end
+
 local function buildSurface(o, cfg)
 	local rr = Random.new(cfg.seed or 1)
 	local m = Instance.new("Model")
 	m.Name = "NasaSurface"
 	for ix = -1, 1 do
 		for iz = -1, 1 do
-			local p = mkPart(m, "Ground", Vector3.new(2040, 40, 2040), CFrame.new(o.X + ix * 2040, o.Y - 20, o.Z + iz * 2040), cfg.ground, cfg.mat or Enum.Material.Concrete)
-			p.CanCollide = true
+			if cfg.deck then -- gas giant: a solid, banded cloud deck
+				for k = 0, 3 do
+					local p = mkPart(m, "Deck", Vector3.new(2040, 40, 510), CFrame.new(o.X + ix * 2040, o.Y - 20, o.Z + iz * 2040 - 765 + k * 510),
+						cfg.deck[((iz + 1) * 4 + k) % #cfg.deck + 1], Enum.Material.SmoothPlastic)
+					p.CanCollide = true
+				end
+			else
+				local p = mkPart(m, "Ground", Vector3.new(2040, 40, 2040), CFrame.new(o.X + ix * 2040, o.Y - 20, o.Z + iz * 2040), cfg.ground, cfg.mat or Enum.Material.Concrete)
+				p.CanCollide = true
+			end
 		end
 	end
 	local function far(x, z, minR) return math.sqrt((x - o.X) ^ 2 + (z - o.Z) ^ 2) > minR end
@@ -994,9 +1038,71 @@ local function buildSurface(o, cfg)
 		end
 	end
 	for _, sb in ipairs(cfg.sky or {}) do
-		local b = mkBall(m, "SkyMoon", sb[2], Color3.fromRGB(150, 140, 130))
+		local b = mkBall(m, "SkyMoon", sb[2], sb[3] or Color3.fromRGB(150, 140, 130))
 		b.Position = o + sb[1]
 		b.CanQuery = false
+	end
+	if cfg.cracks then -- Europa's dark ice cracks
+		for _ = 1, 45 do
+			local x, z = o.X + rr:NextNumber(-3000, 3000), o.Z + rr:NextNumber(-3000, 3000)
+			if far(x, z, 200) then
+				mkPart(m, "IceCrack", Vector3.new(rr:NextNumber(3, 7), 0.3, rr:NextNumber(150, 500)),
+					CFrame.new(x, o.Y + 0.2, z) * CFrame.Angles(0, rr:NextNumber(0, 6), 0), Color3.fromRGB(150, 85, 62), Enum.Material.SmoothPlastic)
+			end
+		end
+	end
+	if cfg.heart then -- Pluto's bright heart-shaped plain
+		local hc = Color3.fromRGB(238, 228, 218)
+		local c0 = o + Vector3.new(0, 0.35, -1100)
+		mkCyl(m, "HeartL", 0.4, 720, CFrame.new(c0 + Vector3.new(-290, 0, 0)), hc, Enum.Material.Snow)
+		mkCyl(m, "HeartR", 0.4, 720, CFrame.new(c0 + Vector3.new(290, 0, 0)), hc, Enum.Material.Snow)
+		mkPart(m, "HeartV", Vector3.new(620, 0.4, 620), CFrame.new(c0 + Vector3.new(0, 0, -330)) * CFrame.Angles(0, math.rad(45), 0), hc, Enum.Material.Snow)
+	end
+	if cfg.jupiter then -- giant Jupiter filling the sky
+		local ed = (sunDir:Cross(Vector3.yAxis).Unit * 0.9 + Vector3.new(0, 0.35, 0)).Unit
+		local j = buildJupiter()
+		j.Parent = m
+		j:PivotTo(CFrame.new(o + ed * cfg.jupiter) * CFrame.Angles(0, 0, math.rad(3)))
+	end
+	if cfg.storms then -- swirling storms on the cloud deck
+		for _ = 1, cfg.storms do
+			local x, z = o.X + rr:NextNumber(-3000, 3000), o.Z + rr:NextNumber(-3000, 3000)
+			if far(x, z, 250) then
+				local d = rr:NextNumber(150, 520)
+				local c = cfg.stormCols[rr:NextInteger(1, #cfg.stormCols)]
+				mkCyl(m, "Storm", 0.5, d, CFrame.new(x, o.Y + 0.25, z), c, Enum.Material.SmoothPlastic)
+				mkCyl(m, "StormEye", 0.6, d * 0.45, CFrame.new(x, o.Y + 0.35, z), cfg.stormEye, Enum.Material.SmoothPlastic)
+			end
+		end
+	end
+	if cfg.floating then -- tumbling asteroids all around
+		for _ = 1, cfg.floating do
+			local w = rr:NextNumber(20, 200)
+			local g = rr:NextInteger(80, 140)
+			local fr = mkEllipse(m, "FloatRock", Vector3.new(w, w * rr:NextNumber(0.6, 0.9), w * rr:NextNumber(0.7, 1)),
+				CFrame.new(o.X + rr:NextNumber(-3500, 3500), o.Y + rr:NextNumber(120, 2500), o.Z + rr:NextNumber(-3500, 3500))
+					* CFrame.Angles(rr:NextNumber(0, 6), rr:NextNumber(0, 6), rr:NextNumber(0, 6)), Color3.fromRGB(g, g - 6, g - 14))
+			fr.CanQuery = false
+		end
+	end
+	if cfg.rings then -- ring arcs across the sky
+		local rm = Instance.new("Model")
+		rm.Name = "NasaRings"
+		rootPart(rm)
+		for _, rg in ipairs(cfg.rings) do
+			local N = 70
+			for i = 1, N do
+				local a = i / N * math.pi * 2
+				local pos = Vector3.new(math.cos(a) * rg[1], 0, math.sin(a) * rg[1])
+				local seg = mkPart(rm, "Ring", Vector3.new(rg[2], 2, rg[1] * 2 * math.pi / N * 1.15),
+					CFrame.lookAt(pos, pos + Vector3.new(-math.sin(a), 0, math.cos(a))), rg[3], Enum.Material.SmoothPlastic)
+				seg.Transparency = rg[4]
+				seg.CanQuery = false
+				seg.CastShadow = false
+			end
+		end
+		rm.Parent = m
+		rm:PivotTo(CFrame.new(o + cfg.ringCenter) * CFrame.Angles(math.rad(cfg.ringTilt), 0, 0))
 	end
 	return m
 end
@@ -1004,6 +1110,14 @@ end
 local MARS_ORIGIN = Vector3.new(150000, 5000, 150000)
 local MERCURY_ORIGIN = Vector3.new(-150000, 5000, -150000)
 local VENUS_ORIGIN = Vector3.new(-150000, 5000, 150000)
+local IO_ORIGIN = Vector3.new(-150000, 5000, 0)
+local EUROPA_ORIGIN = Vector3.new(0, 5000, -150000)
+local PLUTO_ORIGIN = Vector3.new(0, 5000, 150000)
+local ASTEROID_ORIGIN = Vector3.new(-300000, 5000, 300000)
+local JUPITER_ORIGIN = Vector3.new(-300000, 5000, 0)
+local SATURN_ORIGIN = Vector3.new(300000, 5000, 0)
+local URANUS_ORIGIN = Vector3.new(0, 5000, 300000)
+local NEPTUNE_ORIGIN = Vector3.new(0, 5000, -300000)
 local G = 196.2
 
 local PLANETS = {
@@ -1025,7 +1139,7 @@ local PLANETS = {
 		env = { bright = 2.6, amb = Color3.fromRGB(95, 58, 42), out = Color3.fromRGB(85, 52, 38),
 			atmo = { Color = Color3.fromRGB(224, 160, 120), Decay = Color3.fromRGB(170, 100, 70), Density = 0.32, Haze = 1.6 },
 			tint = Color3.fromRGB(255, 210, 185), fog = { Color3.fromRGB(190, 120, 90), 400, 6000 } },
-		pickups = { { "HULL", Vector3.new(100, 3, -80) } },
+		pickups = { { "HULL", Vector3.new(100, 3, -80) }, { "CRYO", Vector3.new(-110, 3, -60) } },
 		arrive = "MARS: THIN AIR + DUST - OXYGEN TANK AND FILTERS ONLINE",
 	},
 	MERCURY = {
@@ -1048,8 +1162,113 @@ local PLANETS = {
 		env = { bright = 1.6, amb = Color3.fromRGB(140, 95, 40), out = Color3.fromRGB(120, 80, 35),
 			atmo = { Color = Color3.fromRGB(255, 200, 110), Decay = Color3.fromRGB(230, 150, 60), Density = 0.7, Haze = 4 },
 			tint = Color3.fromRGB(255, 215, 150), fog = { Color3.fromRGB(210, 150, 70), 0, 1100 } },
-		pickups = {},
+		pickups = { { "SULFUR", Vector3.new(95, 3, 85) } },
 		arrive = "VENUS: HEAT SHIELD + PRESSURE HULL + ACID COATING HOLDING",
+	},
+	IO = {
+		name = "IO", origin = IO_ORIGIN, grav = G * 0.183, dust = Color3.fromRGB(215, 190, 90), startH = 800, landT = 9,
+		sunDist = 30000, sunSize = 700, earth = false,
+		cfg = { seed = 41, mat = Enum.Material.Sand, ground = Color3.fromRGB(222, 198, 92), crater = Color3.fromRGB(150, 110, 50),
+			rim = Color3.fromRGB(238, 220, 130), rockA = Color3.fromRGB(120, 90, 40), rockB = Color3.fromRGB(215, 190, 90),
+			hill = Color3.fromRGB(205, 170, 75), ridge = Color3.fromRGB(170, 135, 60), craters = 18, rocks = 150, hills = 22,
+			lava = true, jupiter = 7500 },
+		env = { bright = 2.2, amb = Color3.fromRGB(110, 90, 40), out = Color3.fromRGB(95, 78, 36),
+			atmo = { Color = Color3.fromRGB(255, 225, 130), Decay = Color3.fromRGB(230, 170, 70), Density = 0.12, Haze = 0.6 },
+			tint = Color3.fromRGB(255, 235, 175) },
+		pickups = {},
+		arrive = "IO: SULFUR FILTER + HEAT SHIELD + RADIATION SUIT HOLDING",
+	},
+	EUROPA = {
+		name = "EUROPA", origin = EUROPA_ORIGIN, grav = G * 0.134, dust = Color3.fromRGB(215, 230, 240), startH = 800, landT = 9,
+		sunDist = 30000, sunSize = 500, earth = false,
+		cfg = { seed = 51, mat = Enum.Material.Ice, rockMat = Enum.Material.Ice, ground = Color3.fromRGB(214, 232, 242),
+			crater = Color3.fromRGB(160, 185, 205), rim = Color3.fromRGB(240, 248, 255), rockA = Color3.fromRGB(170, 200, 220),
+			rockB = Color3.fromRGB(235, 245, 255), hill = Color3.fromRGB(225, 238, 248), ridge = Color3.fromRGB(210, 225, 240),
+			craters = 12, rocks = 150, hills = 24, cracks = true, jupiter = 6500 },
+		env = { bright = 2.2, amb = Color3.fromRGB(60, 78, 105), out = Color3.fromRGB(50, 68, 95), tint = Color3.fromRGB(225, 238, 255) },
+		pickups = { { "DRILL", Vector3.new(85, 3, -95) } },
+		arrive = "EUROPA: CRYO INSULATION + RADIATION SUIT + HULL HOLDING",
+	},
+	PLUTO = {
+		name = "PLUTO", origin = PLUTO_ORIGIN, grav = G * 0.063, dust = Color3.fromRGB(215, 200, 185), startH = 800, landT = 9,
+		sunDist = 30000, sunSize = 160, earth = false,
+		cfg = { seed = 61, mat = Enum.Material.Snow, ground = Color3.fromRGB(206, 186, 166), crater = Color3.fromRGB(150, 130, 112),
+			rim = Color3.fromRGB(225, 210, 192), rockA = Color3.fromRGB(150, 135, 120), rockB = Color3.fromRGB(210, 195, 180),
+			hill = Color3.fromRGB(190, 200, 215), ridge = Color3.fromRGB(170, 160, 150), craters = 22, rocks = 150, hills = 18,
+			heart = true, sky = { { Vector3.new(5500, 3500, -4000), 900, Color3.fromRGB(150, 140, 135) } } },
+		env = { bright = 1.5, amb = Color3.fromRGB(34, 32, 42), out = Color3.fromRGB(26, 24, 34),
+			atmo = { Color = Color3.fromRGB(140, 170, 235), Decay = Color3.fromRGB(100, 120, 190), Density = 0.06, Haze = 0.5 },
+			tint = Color3.fromRGB(230, 236, 255) },
+		pickups = {},
+		arrive = "PLUTO: CRYO INSULATION + OXYGEN + ICE DRILL HOLDING",
+	},
+	ASTEROID = {
+		name = "THE ASTEROID BELT", origin = ASTEROID_ORIGIN, grav = G * 0.03, dust = Color3.fromRGB(120, 110, 100), startH = 800, landT = 9,
+		sunDist = 30000, sunSize = 700, earth = false,
+		cfg = { seed = 71, ground = Color3.fromRGB(96, 88, 80), crater = Color3.fromRGB(66, 60, 55), rim = Color3.fromRGB(130, 120, 110),
+			rockA = Color3.fromRGB(70, 64, 58), rockB = Color3.fromRGB(130, 118, 105), hill = Color3.fromRGB(100, 92, 84),
+			ridge = Color3.fromRGB(86, 80, 72), craters = 40, rocks = 230, hills = 12, floating = 70 },
+		env = { bright = 3.5, amb = Color3.fromRGB(28, 28, 32), out = Color3.fromRGB(20, 20, 24) },
+		pickups = { { "GRAV", Vector3.new(90, 3, 60) } },
+		arrive = "ASTEROID BELT: HULL PLATING + OXYGEN HOLDING",
+	},
+	JUPITER = {
+		name = "JUPITER", origin = JUPITER_ORIGIN, grav = G * 2.5, dust = Color3.fromRGB(215, 175, 130), startH = 700, landT = 9,
+		sunDist = 30000, sunSize = 380, earth = false,
+		cfg = { seed = 81, hill = Color3.fromRGB(240, 225, 200), ridge = Color3.fromRGB(225, 200, 165), craters = 0, rocks = 0, hills = 18,
+			deck = { Color3.fromRGB(220, 175, 130), Color3.fromRGB(240, 225, 200), Color3.fromRGB(180, 120, 85), Color3.fromRGB(230, 200, 160) },
+			storms = 16, stormEye = Color3.fromRGB(190, 75, 50),
+			stormCols = { Color3.fromRGB(235, 210, 180), Color3.fromRGB(200, 120, 85), Color3.fromRGB(245, 235, 220) },
+			sky = { { Vector3.new(4500, 3000, -2500), 300, Color3.fromRGB(235, 215, 120) }, { Vector3.new(-5000, 3500, 2000), 250, Color3.fromRGB(225, 225, 215) } } },
+		env = { bright = 2.0, amb = Color3.fromRGB(130, 100, 70), out = Color3.fromRGB(110, 85, 60),
+			atmo = { Color = Color3.fromRGB(230, 190, 150), Decay = Color3.fromRGB(200, 140, 100), Density = 0.55, Haze = 3 },
+			tint = Color3.fromRGB(255, 225, 195), fog = { Color3.fromRGB(215, 170, 125), 200, 3500 } },
+		pickups = { { "JOVE", Vector3.new(80, 3, 75) } },
+		arrive = "JUPITER: PRESSURE SEAL + RADIATION SUIT + STABILIZER HOLDING",
+	},
+	SATURN = {
+		name = "SATURN", origin = SATURN_ORIGIN, grav = G * 1.07, dust = Color3.fromRGB(225, 205, 155), startH = 700, landT = 9,
+		sunDist = 30000, sunSize = 260, earth = false,
+		cfg = { seed = 91, hill = Color3.fromRGB(245, 235, 205), ridge = Color3.fromRGB(230, 212, 165), craters = 0, rocks = 0, hills = 16,
+			deck = { Color3.fromRGB(230, 210, 160), Color3.fromRGB(240, 230, 190), Color3.fromRGB(205, 180, 125), Color3.fromRGB(220, 195, 140) },
+			storms = 10, stormEye = Color3.fromRGB(190, 160, 105),
+			stormCols = { Color3.fromRGB(240, 228, 195), Color3.fromRGB(215, 190, 135) },
+			rings = { { 10000, 1100, Color3.fromRGB(205, 180, 135), 0.25 }, { 11400, 1100, Color3.fromRGB(225, 205, 160), 0.2 },
+				{ 12800, 900, Color3.fromRGB(190, 165, 120), 0.3 }, { 14000, 600, Color3.fromRGB(215, 195, 150), 0.35 } },
+			ringCenter = Vector3.new(0, -8000, 0), ringTilt = 20,
+			sky = { { Vector3.new(5000, 2500, -3500), 260, Color3.fromRGB(210, 150, 70) } } },
+		env = { bright = 1.8, amb = Color3.fromRGB(125, 110, 80), out = Color3.fromRGB(105, 92, 68),
+			atmo = { Color = Color3.fromRGB(235, 215, 165), Decay = Color3.fromRGB(200, 170, 110), Density = 0.5, Haze = 2.5 },
+			tint = Color3.fromRGB(255, 240, 205), fog = { Color3.fromRGB(225, 205, 155), 300, 4500 } },
+		pickups = { { "RING", Vector3.new(85, 3, 70) } },
+		arrive = "SATURN: STABILIZER + PRESSURE SEAL + CRYO PACK HOLDING",
+	},
+	URANUS = {
+		name = "URANUS", origin = URANUS_ORIGIN, grav = G * 0.89, dust = Color3.fromRGB(170, 225, 232), startH = 700, landT = 9,
+		sunDist = 30000, sunSize = 150, earth = false,
+		cfg = { seed = 101, hill = Color3.fromRGB(205, 245, 250), ridge = Color3.fromRGB(175, 232, 240), craters = 0, rocks = 0, hills = 14,
+			deck = { Color3.fromRGB(170, 230, 235), Color3.fromRGB(190, 240, 245), Color3.fromRGB(150, 215, 225) },
+			storms = 6, stormEye = Color3.fromRGB(130, 200, 215), stormCols = { Color3.fromRGB(205, 245, 250), Color3.fromRGB(150, 220, 232) },
+			rings = { { 9000, 160, Color3.fromRGB(190, 230, 240), 0.4 }, { 9800, 120, Color3.fromRGB(170, 215, 230), 0.45 } },
+			ringCenter = Vector3.new(0, -2000, -7000), ringTilt = 95 },
+		env = { bright = 1.5, amb = Color3.fromRGB(70, 110, 120), out = Color3.fromRGB(58, 95, 105),
+			atmo = { Color = Color3.fromRGB(160, 225, 235), Decay = Color3.fromRGB(110, 180, 195), Density = 0.45, Haze = 2 },
+			tint = Color3.fromRGB(205, 245, 250), fog = { Color3.fromRGB(170, 230, 238), 300, 4500 } },
+		pickups = { { "METH", Vector3.new(80, 3, 80) } },
+		arrive = "URANUS: PRESSURE SEAL + RING SHIELD + CRYO PACK HOLDING",
+	},
+	NEPTUNE = {
+		name = "NEPTUNE", origin = NEPTUNE_ORIGIN, grav = G * 1.14, dust = Color3.fromRGB(90, 125, 230), startH = 700, landT = 9,
+		sunDist = 30000, sunSize = 100, earth = false,
+		cfg = { seed = 111, hill = Color3.fromRGB(110, 140, 240), ridge = Color3.fromRGB(60, 90, 200), craters = 0, rocks = 0, hills = 14,
+			deck = { Color3.fromRGB(60, 90, 200), Color3.fromRGB(80, 115, 225), Color3.fromRGB(45, 70, 170) },
+			storms = 8, stormEye = Color3.fromRGB(20, 30, 90), stormCols = { Color3.fromRGB(30, 45, 130), Color3.fromRGB(200, 220, 255) },
+			sky = { { Vector3.new(-4800, 3200, 3000), 280, Color3.fromRGB(210, 190, 200) } } },
+		env = { bright = 1.3, amb = Color3.fromRGB(35, 55, 110), out = Color3.fromRGB(28, 45, 95),
+			atmo = { Color = Color3.fromRGB(90, 130, 240), Decay = Color3.fromRGB(60, 90, 190), Density = 0.5, Haze = 2.2 },
+			tint = Color3.fromRGB(190, 210, 255), fog = { Color3.fromRGB(70, 100, 210), 300, 4500 } },
+		pickups = {},
+		arrive = "NEPTUNE: RING SHIELD + METHANE FILTER + ICE DRILL HOLDING",
 	},
 }
 
@@ -1367,16 +1586,18 @@ local BODIES = {
 	{ id = "Moon", parent = "Earth", r = 22, w = 1.1, name = "MOON (LUNA)", col = C(205, 205, 210), size = 5, info = "LUNA // LIGHT SPEED JUMP + LANDING AVAILABLE" },
 	{ id = "ISS", parent = "Earth", r = 14, w = 2.6, name = "ISS", col = C(245, 245, 250), size = 3, info = "LOW EARTH ORBIT STATION // DOCKING AVAILABLE" },
 	{ id = "Mars", parent = "Sun", r = 158, w = 0.3, name = "MARS", col = C(200, 90, 60), size = 9, info = "PLANET // LANDING AVAILABLE - SURVIVAL GEAR REQUIRED" },
-	{ id = "Jupiter", parent = "Sun", r = 205, w = 0.18, name = "JUPITER", col = C(210, 160, 120), size = 26, info = "GAS GIANT // 5.2 AU" .. PH },
-	{ id = "Io", parent = "Jupiter", r = 25, w = 1.7, name = "IO", col = C(230, 210, 110), size = 4, info = "MOON OF JUPITER" .. PH },
-	{ id = "Europa", parent = "Jupiter", r = 36, w = 1.1, name = "EUROPA", col = C(220, 215, 200), size = 4, info = "MOON OF JUPITER" .. PH },
-	{ id = "Saturn", parent = "Sun", r = 255, w = 0.13, name = "SATURN", col = C(225, 200, 140), size = 22, info = "RINGED GIANT // 9.5 AU" .. PH },
+	{ id = "Asteroids", parent = "Sun", r = 182, w = 0.22, name = "ASTEROID BELT", col = C(160, 150, 138), size = 5, info = "DWARF PLANET CERES // LANDING AVAILABLE - GEAR REQUIRED" },
+	{ id = "Jupiter", parent = "Sun", r = 205, w = 0.18, name = "JUPITER", col = C(210, 160, 120), size = 26, info = "GAS GIANT // LAND ON A CLOUD-TOP PLATFORM - GEAR REQUIRED" },
+	{ id = "Io", parent = "Jupiter", r = 25, w = 1.7, name = "IO", col = C(230, 210, 110), size = 4, info = "VOLCANIC MOON OF JUPITER // LANDING AVAILABLE - GEAR REQUIRED" },
+	{ id = "Europa", parent = "Jupiter", r = 36, w = 1.1, name = "EUROPA", col = C(220, 215, 200), size = 4, info = "ICY MOON OF JUPITER // LANDING AVAILABLE - GEAR REQUIRED" },
+	{ id = "Saturn", parent = "Sun", r = 255, w = 0.13, name = "SATURN", col = C(225, 200, 140), size = 22, info = "RINGED GIANT // LAND ON A CLOUD-TOP PLATFORM - GEAR REQUIRED" },
 	{ id = "Titan", parent = "Saturn", r = 32, w = 0.9, name = "TITAN", col = C(210, 150, 70), size = 5, info = "MOON OF SATURN" .. PH },
-	{ id = "Uranus", parent = "Sun", r = 300, w = 0.09, name = "URANUS", col = C(140, 220, 230), size = 16, info = "ICE GIANT // 19.2 AU" .. PH },
-	{ id = "Neptune", parent = "Sun", r = 340, w = 0.07, name = "NEPTUNE", col = C(60, 90, 220), size = 15, info = "ICE GIANT // 30 AU" .. PH },
-	{ id = "Pluto", parent = "Sun", r = 378, w = 0.05, name = "PLUTO", col = C(190, 170, 150), size = 6, info = "DWARF PLANET // 39 AU" .. PH },
+	{ id = "Uranus", parent = "Sun", r = 300, w = 0.09, name = "URANUS", col = C(140, 220, 230), size = 16, info = "ICE GIANT // LAND ON A CLOUD-TOP PLATFORM - GEAR REQUIRED" },
+	{ id = "Neptune", parent = "Sun", r = 340, w = 0.07, name = "NEPTUNE", col = C(60, 90, 220), size = 15, info = "ICE GIANT // LAND ON A CLOUD-TOP PLATFORM - GEAR REQUIRED" },
+	{ id = "Pluto", parent = "Sun", r = 378, w = 0.05, name = "PLUTO", col = C(190, 170, 150), size = 6, info = "DWARF PLANET // LANDING AVAILABLE - EXTREME COLD, GEAR REQUIRED" },
 }
-local DEST = { Earth = "EARTH", Moon = "MOON", ISS = "ISS", Mars = "MARS", Mercury = "MERCURY", Venus = "VENUS" }
+local DEST = { Earth = "EARTH", Moon = "MOON", ISS = "ISS", Mars = "MARS", Mercury = "MERCURY", Venus = "VENUS", Io = "IO", Europa = "EUROPA", Pluto = "PLUTO",
+	Asteroids = "ASTEROID", Jupiter = "JUPITER", Saturn = "SATURN", Uranus = "URANUS", Neptune = "NEPTUNE" }
 local BODYMAP, ang, E = {}, {}, {}
 local zoom, pan, sel = 0.3, Vector2.zero, nil
 local lastPos = {}
@@ -1412,6 +1633,14 @@ end
 local hereRing = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Size = UDim2.fromOffset(20, 20), ZIndex = 5 }, mapArea)
 roundOff(hereRing)
 stroke(hereRing, GREEN, 2)
+local BELT = {}
+for i = 1, 80 do
+	local f = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2, 2), BackgroundColor3 = C(150, 140, 128),
+		BackgroundTransparency = rng:NextNumber(0.1, 0.5), BorderSizePixel = 0, ZIndex = 2,
+	}, mapArea)
+	BELT[i] = { f = f, a = rng:NextNumber(0, 6.28), r = rng:NextNumber(172, 192), w = 0.22 + rng:NextNumber(-0.04, 0.04) }
+end
 
 -- map controls
 local function mapBtn(text, i)
@@ -1511,10 +1740,13 @@ track(UIS.TouchPinch:Connect(function(_, scale, _, state)
 end))
 
 local function locBodyId()
-	return ({ ISS = "ISS", MOON = "Moon", MARS = "Mars", MERCURY = "Mercury", VENUS = "Venus" })[loc] or "Earth"
+	return ({ ISS = "ISS", MOON = "Moon", MARS = "Mars", MERCURY = "Mercury", VENUS = "Venus", IO = "Io", EUROPA = "Europa", PLUTO = "Pluto",
+		ASTEROID = "Asteroids", JUPITER = "Jupiter", SATURN = "Saturn", URANUS = "Uranus", NEPTUNE = "Neptune" })[loc] or "Earth"
 end
 local LOCNAME = { EARTH = "EARTH PAD", ORBIT = "EARTH ORBIT", ISS = "ISS DOCKED", MOON = "LUNAR SURFACE",
-	MARS = "MARS SURFACE", MERCURY = "MERCURY SURFACE", VENUS = "VENUS SURFACE" }
+	MARS = "MARS SURFACE", MERCURY = "MERCURY SURFACE", VENUS = "VENUS SURFACE",
+	IO = "IO SURFACE", EUROPA = "EUROPA SURFACE", PLUTO = "PLUTO SURFACE",
+	ASTEROID = "ASTEROID BELT", JUPITER = "JUPITER CLOUDS", SATURN = "SATURN CLOUDS", URANUS = "URANUS CLOUDS", NEPTUNE = "NEPTUNE CLOUDS" }
 local function updateTablet(dt)
 	local sz = mapArea.AbsoluteSize
 	local cx, cy = sz.X / 2 + pan.X, sz.Y / 2 + pan.Y
@@ -1544,6 +1776,11 @@ local function updateTablet(dt)
 			el.sat.Position = UDim2.fromOffset(p.X, p.Y)
 			el.sat.Size = UDim2.fromOffset(d * 2.4, d * 0.8)
 		end
+	end
+	for _, d in ipairs(BELT) do
+		d.a = d.a + d.w * dt
+		local bp = pos.Sun + Vector2.new(math.cos(d.a), math.sin(d.a)) * (d.r * zoom)
+		d.f.Position = UDim2.fromOffset(bp.X, bp.Y)
 	end
 	local hid = locBodyId()
 	local hp = pos[hid]
@@ -1581,14 +1818,30 @@ local PAGES = {
 		left = "Low Earth orbit. Safe - no gear needed.\n\nWarp there from the tablet and the rocket docks by itself. It is zero gravity: float to the glowing crates above the station core and tap COLLECT.\n\nThese two items are needed for Mars, Mercury and Venus." },
 	{ title = "THE MOON", dest = "MOON", gear = { "SAMPLE", "RADSUIT" },
 		left = "A light-speed jump, then a landing burn. Safe, zero gravity, no gear needed.\n\nTwo crates near your landing site hold gear for Mars and Mercury. Earth hangs in the sky, spinning slowly.\n\nTo leave, walk back to the rocket, tap Enter Rocket? and use the tablet." },
-	{ title = "MARS", dest = "MARS", gear = { "HULL" },
-		left = "HAZARDS: the air is thin carbon dioxide - you cannot breathe it. Dust storms clog the filters. Gravity is 38% of Earth.\n\nWithout the right gear you would not survive the landing. Bring the Oxygen Tank and a Lunar Sample (it calibrates the dust filters).\n\nA Pressure Hull Plate waits near the landing site." },
+	{ title = "MARS", dest = "MARS", gear = { "HULL", "CRYO" },
+		left = "HAZARDS: the air is thin carbon dioxide - you cannot breathe it. Dust storms clog the filters. Gravity is 38% of Earth.\n\nWithout the right gear you would not survive the landing. Bring the Oxygen Tank and a Lunar Sample (it calibrates the dust filters).\n\nA Pressure Hull Plate and a Cryo Insulation Pack wait near the landing site." },
 	{ title = "MERCURY", dest = "MERCURY", gear = { "COATING" },
 		left = "HAZARDS: the day side is hotter than 400 C and the radiation is brutal, with almost no atmosphere to shield you. Gravity is 38% of Earth.\n\nBring Heat Shield Plating and the Radiation Suit Module.\n\nAn Acid Coating Canister waits near the landing site." },
-	{ title = "VENUS", dest = "VENUS", gear = {},
-		left = "HAZARDS: 465 C, pressure 90 times Earth's, and clouds of sulfuric acid. The hardest trip of all.\n\nBring the Heat Shield Plating, the Pressure Hull Plate from Mars and the Acid Coating Canister from Mercury.\n\nSuggested order: ISS, Moon, Mars, Mercury, Venus." },
+	{ title = "VENUS", dest = "VENUS", gear = { "SULFUR" },
+		left = "HAZARDS: 465 C, pressure 90 times Earth's, and clouds of sulfuric acid. The hardest trip of all.\n\nBring the Heat Shield Plating, the Pressure Hull Plate from Mars and the Acid Coating Canister from Mercury.\n\nA Sulfur Filter Unit waits near the landing site." },
+	{ title = "IO", dest = "IO", gear = {},
+		left = "HAZARDS: Jupiter's radiation pours over this moon, volcanoes spray sulfur, and the ground is scorching. Gravity is 18% of Earth. Jupiter fills the sky.\n\nBring the Heat Shield Plating, the Radiation Suit Module and the Sulfur Filter Unit from Venus." },
+	{ title = "EUROPA", dest = "EUROPA", gear = { "DRILL" },
+		left = "HAZARDS: a frozen crust far colder than anywhere on Earth, with deadly radiation from Jupiter. Gravity is 13% of Earth.\n\nBring the Cryo Insulation Pack from Mars, the Radiation Suit Module and the Pressure Hull Plate.\n\nAn Ice Drill Bit waits near the landing site." },
+	{ title = "PLUTO", dest = "PLUTO", gear = {},
+		left = "HAZARDS: the far edge of the sun's reach. It is bitterly cold, there is almost no air, and the Sun is only a bright star. Gravity is 6% of Earth.\n\nBring the Cryo Insulation Pack, an Oxygen Tank and the Ice Drill Bit from Europa." },
+	{ title = "ASTEROID BELT", dest = "ASTEROID", gear = { "GRAV" },
+		left = "HAZARDS: a field of tumbling rock. Micrometeorites hit constantly and there is almost no gravity.\n\nBring the Pressure Hull Plate for impacts and an Oxygen Tank for walking outside.\n\nA Gravity Stabilizer waits on the big asteroid near the landing site. You need it for Jupiter and Saturn." },
+	{ title = "JUPITER", dest = "JUPITER", gear = { "JOVE" },
+		left = "HAZARDS: crushing gravity (2.5x Earth), deadly radiation and violent storms. There is no ground - you land on a floating cloud-top platform.\n\nBring the Heat Shield Plating, the Radiation Suit Module, the Pressure Hull Plate and the Gravity Stabilizer from the Asteroid Belt.\n\nA Jovian Pressure Seal waits near the platform." },
+	{ title = "SATURN", dest = "SATURN", gear = { "RING" },
+		left = "HAZARDS: freezing winds and a sky full of ring debris. Gravity is about like Earth. You land on a cloud-top platform under the great rings.\n\nBring the Gravity Stabilizer, the Jovian Pressure Seal from Jupiter and the Cryo Insulation Pack.\n\nA Ring Debris Shield waits near the platform." },
+	{ title = "URANUS", dest = "URANUS", gear = { "METH" },
+		left = "HAZARDS: the coldest atmosphere in the solar system, methane haze, and a world tipped on its side with thin vertical rings.\n\nBring the Jovian Pressure Seal, the Ring Debris Shield from Saturn and the Cryo Insulation Pack.\n\nA Methane Filter waits near the platform." },
+	{ title = "NEPTUNE", dest = "NEPTUNE", gear = {},
+		left = "HAZARDS: supersonic winds, dark storms and deep cold at the edge of the giant planets.\n\nBring the Ring Debris Shield, the Methane Filter from Uranus and the Ice Drill Bit from Europa." },
 	{ title = "TIPS", tips = true,
-		left = "- Use + and - (or pinch) to zoom the chart, drag to move it.\n- FIT resets the chart. O centers on your selection.\n- The green ring on the chart is where you are.\n- On a landed rocket: walk back, tap Enter Rocket?, open the tablet and press GO again.\n- While parked in orbit, push the throttle up to fly freely.\n- Grey planets on the chart are still placeholders." },
+		left = "- Use + and - (or pinch) to zoom the chart, drag to move it.\n- FIT resets the chart. O centers on your selection.\n- The green ring on the chart is where you are.\n- On a landed rocket: walk back, tap Enter Rocket?, open the tablet and press GO again.\n- While parked in orbit, push the throttle up to fly freely.\n- Suggested order: ISS, Moon, Mars, Asteroid Belt, Mercury, Venus, Jupiter, Io, Europa, Saturn, Uranus, Neptune, Pluto.\n- Only the Sun and Titan are still placeholders." },
 }
 local pageIdx = 1
 
@@ -1997,6 +2250,9 @@ track(RunService.RenderStepped:Connect(function(dt)
 		navBtn.TextColor3 = spaceMode and CYAN or Color3.fromRGB(70, 110, 130)
 	end
 end))
+
+end
+initSpaceSystems()
 
 ----------------------------------------------------------------
 -- item: carry pose + tap to place
