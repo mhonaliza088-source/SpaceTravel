@@ -99,6 +99,7 @@ local rocket = nil
 local throttle = 0
 local loc, spaceMode = "EARTH", false
 local openTablet, closeTablet, SpaceCleanup, travel, openBook, bookTool, onInvChanged
+local onBinoEquip, onBinoUnequip, onGogglesToggle, binoTool, gogglesTool
 local worldFolder = Instance.new("Folder")
 worldFolder.Name = "NasaRocketWorld"
 worldFolder.Parent = workspace
@@ -825,6 +826,9 @@ local ITEMS = {
 	JOVE = { name = "Jovian Pressure Seal", where = "Jupiter - near your landing platform", color = Color3.fromRGB(255, 170, 90) },
 	RING = { name = "Ring Debris Shield", where = "Saturn - near your landing platform", color = Color3.fromRGB(255, 230, 160) },
 	METH = { name = "Methane Filter", where = "Uranus - near your landing platform", color = Color3.fromRGB(120, 255, 230) },
+	BEACON = { name = "Deep Space Beacon", where = "Kuiper Belt - near your landing site", color = Color3.fromRGB(255, 90, 90) },
+	COMET = { name = "Comet Shield Plate", where = "Oort Cloud - near your landing site", color = Color3.fromRGB(130, 200, 255) },
+	WARPCAL = { name = "Warp Calibrator", where = "Interstellar Space - floating near the Voyager probe", color = Color3.fromRGB(255, 255, 120) },
 }
 local REQS = {
 	MARS = { "O2", "SAMPLE" },
@@ -838,6 +842,10 @@ local REQS = {
 	SATURN = { "GRAV", "JOVE", "CRYO" },
 	URANUS = { "JOVE", "RING", "CRYO" },
 	NEPTUNE = { "RING", "METH", "DRILL" },
+	KUIPER = { "CRYO", "DRILL", "RING" },
+	OORT = { "BEACON", "METH", "GRAV" },
+	INTERSTELLAR = { "COMET", "BEACON", "RING" },
+	ALPHA = { "WARPCAL", "COMET", "SHIELD", "O2" },
 }
 local inv = genv.NASA_INV or {}
 genv.NASA_INV = inv -- gear is kept if you re-run the script
@@ -1128,9 +1136,14 @@ local function buildSurface(o, cfg)
 			local g = rr:NextInteger(80, 140)
 			local fr = mkEllipse(m, "FloatRock", Vector3.new(w, w * rr:NextNumber(0.6, 0.9), w * rr:NextNumber(0.7, 1)),
 				CFrame.new(o.X + rr:NextNumber(-3500, 3500), o.Y + rr:NextNumber(120, 2500), o.Z + rr:NextNumber(-3500, 3500))
-					* CFrame.Angles(rr:NextNumber(0, 6), rr:NextNumber(0, 6), rr:NextNumber(0, 6)), Color3.fromRGB(g, g - 6, g - 14))
+					* CFrame.Angles(rr:NextNumber(0, 6), rr:NextNumber(0, 6), rr:NextNumber(0, 6)), cfg.floatCol and cfg.floatCol:Lerp(Color3.fromRGB(g, g, g), 0.35) or Color3.fromRGB(g, g - 6, g - 14))
 			fr.CanQuery = false
 		end
+	end
+	for _, sn in ipairs(cfg.suns or {}) do -- extra suns (Alpha Centauri B, Proxima)
+		local b = mkBall(m, "StarSun", sn[2], sn[3], Enum.Material.Neon)
+		b.Position = o + sn[1]
+		b.CanQuery = false
 	end
 	if cfg.rings then -- ring arcs across the sky
 		local rm = Instance.new("Model")
@@ -1154,6 +1167,25 @@ local function buildSurface(o, cfg)
 	return m
 end
 
+local function buildVoyagerScene(o)
+	local m = Instance.new("Model")
+	m.Name = "NasaVoyager"
+	local sc = 2.2
+	local metal = Color3.fromRGB(150, 152, 160)
+	local function P(name, size, off, color, mat)
+		return mkPart(m, name, size * sc, CFrame.new(o + off * sc), color, mat)
+	end
+	P("Body", Vector3.new(10, 6, 10), Vector3.zero, Color3.fromRGB(205, 170, 70), Enum.Material.Metal)
+	mkCyl(m, "Dish", 2 * sc, 36 * sc, CFrame.new(o + Vector3.new(0, 0, 10 * sc)) * CFrame.Angles(math.pi / 2, 0, 0), Color3.fromRGB(235, 235, 240), Enum.Material.SmoothPlastic)
+	P("MagBoom", Vector3.new(1, 1, 60), Vector3.new(0, 0, -34), metal, Enum.Material.Metal)
+	P("RTGBoom", Vector3.new(34, 1, 1), Vector3.new(0, 0, -6), metal, Enum.Material.Metal)
+	P("RTGL", Vector3.new(4, 4, 10), Vector3.new(-17, 0, -6), Color3.fromRGB(90, 92, 100), Enum.Material.Metal)
+	P("RTGR", Vector3.new(4, 4, 10), Vector3.new(17, 0, -6), Color3.fromRGB(90, 92, 100), Enum.Material.Metal)
+	P("Antenna", Vector3.new(0.5, 14, 0.5), Vector3.new(0, 9, 0), metal, Enum.Material.Metal)
+	P("ScanPlatform", Vector3.new(6, 4, 6), Vector3.new(0, -5, -2), Color3.fromRGB(60, 62, 70), Enum.Material.Metal)
+	return m
+end
+
 local MARS_ORIGIN = Vector3.new(150000, 5000, 150000)
 local MERCURY_ORIGIN = Vector3.new(-150000, 5000, -150000)
 local VENUS_ORIGIN = Vector3.new(-150000, 5000, 150000)
@@ -1165,6 +1197,10 @@ local JUPITER_ORIGIN = Vector3.new(-300000, 5000, 0)
 local SATURN_ORIGIN = Vector3.new(300000, 5000, 0)
 local URANUS_ORIGIN = Vector3.new(0, 5000, 300000)
 local NEPTUNE_ORIGIN = Vector3.new(0, 5000, -300000)
+local KUIPER_ORIGIN = Vector3.new(300000, 5000, -300000)
+local OORT_ORIGIN = Vector3.new(-300000, 5000, -300000)
+local INTERSTELLAR_ORIGIN = Vector3.new(450000, 5000, 0)
+local ALPHA_ORIGIN = Vector3.new(-450000, 5000, 0)
 local G = 196.2
 
 local PLANETS = {
@@ -1317,6 +1353,46 @@ local PLANETS = {
 		pickups = {},
 		arrive = "NEPTUNE: RING SHIELD + METHANE FILTER + ICE DRILL HOLDING",
 	},
+	KUIPER = {
+		name = "THE KUIPER BELT", origin = KUIPER_ORIGIN, grav = G * 0.02, dust = Color3.fromRGB(150, 160, 182), startH = 800, landT = 9,
+		sunDist = 60000, sunSize = 90, earth = false,
+		cfg = { seed = 121, ground = Color3.fromRGB(104, 112, 132), crater = Color3.fromRGB(70, 78, 98), rim = Color3.fromRGB(150, 160, 182),
+			rockA = Color3.fromRGB(90, 98, 120), rockB = Color3.fromRGB(170, 182, 205), hill = Color3.fromRGB(115, 124, 146),
+			ridge = Color3.fromRGB(95, 104, 126), craters = 30, rocks = 200, hills = 12, floating = 60, floatCol = Color3.fromRGB(160, 175, 205) },
+		env = { bright = 1.6, amb = Color3.fromRGB(24, 28, 42), out = Color3.fromRGB(18, 22, 34) },
+		pickups = { { "BEACON", Vector3.new(85, 3, 70) } },
+		arrive = "KUIPER BELT: CRYO PACK + ICE DRILL + RING SHIELD HOLDING",
+	},
+	OORT = {
+		name = "THE OORT CLOUD", origin = OORT_ORIGIN, grav = G * 0.01, dust = Color3.fromRGB(180, 200, 225), startH = 800, landT = 9,
+		sunDist = 80000, sunSize = 40, earth = false,
+		cfg = { seed = 131, ground = Color3.fromRGB(58, 60, 70), crater = Color3.fromRGB(36, 38, 46), rim = Color3.fromRGB(120, 130, 150),
+			rockA = Color3.fromRGB(50, 52, 60), rockB = Color3.fromRGB(150, 160, 180), hill = Color3.fromRGB(70, 74, 86),
+			ridge = Color3.fromRGB(60, 62, 72), craters = 24, rocks = 210, hills = 10, floating = 130, floatCol = Color3.fromRGB(190, 210, 235) },
+		env = { bright = 1.2, amb = Color3.fromRGB(20, 22, 34), out = Color3.fromRGB(14, 16, 26) },
+		pickups = { { "COMET", Vector3.new(80, 3, 60) } },
+		arrive = "OORT CLOUD: BEACON + METHANE FILTER + STABILIZER HOLDING",
+	},
+	INTERSTELLAR = {
+		name = "INTERSTELLAR SPACE", deep = true, origin = INTERSTELLAR_ORIGIN, grav = 0, dust = Color3.fromRGB(120, 130, 160), startH = 0, landT = 0,
+		sunDist = 30000, sunSize = 40, earth = false,
+		env = { bright = 0.9, amb = Color3.fromRGB(16, 18, 28), out = Color3.fromRGB(12, 14, 22) },
+		pickups = { { "WARPCAL", Vector3.new(40, 6, 30) } },
+		arrive = "INTERSTELLAR: COMET SHIELD + BEACON + RING SHIELD HOLDING",
+	},
+	ALPHA = {
+		name = "PROXIMA B (ALPHA CENTAURI)", origin = ALPHA_ORIGIN, grav = G * 1.1, dust = Color3.fromRGB(190, 110, 80), startH = 800, landT = 9,
+		sunDist = 30000, sunSize = 1700, earth = false,
+		cfg = { seed = 141, mat = Enum.Material.Sand, ground = Color3.fromRGB(150, 74, 52), crater = Color3.fromRGB(105, 50, 36),
+			rim = Color3.fromRGB(180, 100, 70), rockA = Color3.fromRGB(90, 44, 34), rockB = Color3.fromRGB(165, 90, 66),
+			hill = Color3.fromRGB(140, 70, 50), ridge = Color3.fromRGB(125, 62, 44), craters = 22, rocks = 190, hills = 20,
+			suns = { { Vector3.new(-12000, 7000, -26000), 1300, Color3.fromRGB(255, 170, 90) }, { Vector3.new(30000, 9000, 5000), 120, Color3.fromRGB(255, 70, 50) } } },
+		env = { bright = 1.9, amb = Color3.fromRGB(95, 48, 34), out = Color3.fromRGB(80, 40, 30),
+			atmo = { Color = Color3.fromRGB(255, 150, 90), Decay = Color3.fromRGB(200, 100, 60), Density = 0.2, Haze = 1 },
+			tint = Color3.fromRGB(255, 205, 170), fog = { Color3.fromRGB(210, 120, 80), 600, 7000 } },
+		pickups = {},
+		arrive = "PROXIMA B: WARP CALIBRATOR + COMET SHIELD + HEAT SHIELD + OXYGEN HOLDING",
+	},
 }
 
 local function buildSpaceObjects()
@@ -1346,6 +1422,7 @@ local function detachSpace()
 	end
 	if SP.surface then SP.surface:Destroy() SP.surface = nil end
 	if SP.approach then SP.approach:Destroy() SP.approach = nil end
+	if SP.sun2 then SP.sun2:Destroy() SP.sun2 = nil end
 end
 
 local function updateEarth(center)
@@ -1411,6 +1488,7 @@ local function showScene(name)
 	clearPlanetEnv()
 	attachSpace()
 	if SP.approach then SP.approach:Destroy() SP.approach = nil end
+	if SP.sun2 then SP.sun2:Destroy() SP.sun2 = nil end
 	SP.sun.Size = Vector3.new(2000, 2000, 2000)
 	local base, dist = SPACE_ORIGIN, 30000
 	if name == "ORBIT" then
@@ -1427,7 +1505,7 @@ local function showScene(name)
 		SP.moon.Parent = nil
 		SP.iss.Parent = nil
 		if SP.surface then SP.surface:Destroy() end
-		SP.surface = buildSurface(P.origin, P.cfg)
+		SP.surface = P.deep and buildVoyagerScene(P.origin) or buildSurface(P.origin, P.cfg)
 		SP.surface.Parent = worldFolder
 		addPickups(SP.surface, P.origin, P.pickups)
 		if P.earth then
@@ -1599,6 +1677,12 @@ local SPHERES = {
 	NEPTUNE = { base = Color3.fromRGB(52, 84, 196), atmo = Color3.fromRGB(90, 130, 240), atmoT = 0.9, tilt = 10,
 		bands = { { -30, Color3.fromRGB(40, 66, 170) }, { 10, Color3.fromRGB(85, 120, 230) }, { 40, Color3.fromRGB(60, 92, 205) } },
 		patches = { { 1, Color3.fromRGB(20, 28, 80), Color3.fromRGB(20, 28, 80), 300, 300 } } },
+	KUIPER = { base = Color3.fromRGB(140, 150, 175),
+		patches = { { 30, Color3.fromRGB(100, 110, 135), Color3.fromRGB(175, 185, 205), 80, 220 } } },
+	OORT = { base = Color3.fromRGB(55, 57, 66),
+		patches = { { 40, Color3.fromRGB(30, 32, 40), Color3.fromRGB(90, 95, 110), 60, 200 }, { 20, Color3.fromRGB(210, 225, 245), Color3.fromRGB(235, 245, 255), 50, 150 } } },
+	ALPHA = { base = Color3.fromRGB(150, 74, 52), atmo = Color3.fromRGB(255, 150, 90), atmoT = 0.9,
+		patches = { { 30, Color3.fromRGB(105, 50, 36), Color3.fromRGB(180, 100, 70), 120, 320 } } },
 }
 
 local function buildPlanetSphere(key)
@@ -1671,6 +1755,7 @@ local function showApproach(key)
 	SP.iss.Parent = nil
 	if SP.surface then SP.surface:Destroy() SP.surface = nil end
 	if SP.approach then SP.approach:Destroy() SP.approach = nil end
+	if SP.sun2 then SP.sun2:Destroy() SP.sun2 = nil end
 	SP.sun.Size = Vector3.new(2000, 2000, 2000)
 	if key == "EARTH" then
 		SP.earth.Parent = worldFolder
@@ -1687,6 +1772,12 @@ local function showApproach(key)
 		SP.approach = pm
 	end
 	SP.sun.Position = APPROACH_ORIGIN + sunDir * 30000
+	if key == "ALPHA" then -- two suns
+		SP.sun.Size = Vector3.new(1700, 1700, 1700)
+		SP.sun2 = mkBall(worldFolder, "NasaSun2", 1300, Color3.fromRGB(255, 170, 90), Enum.Material.Neon)
+		SP.sun2.Position = APPROACH_ORIGIN + Vector3.new(-12000, 7000, -26000)
+		SP.sun2.CanQuery = false
+	end
 	SP.stars:PivotTo(CFrame.new(APPROACH_ORIGIN))
 	updateEarth(SP.earthCenter)
 end
@@ -1828,9 +1919,15 @@ local BODIES = {
 	{ id = "Uranus", parent = "Sun", r = 300, w = 0.09, name = "URANUS", col = C(140, 220, 230), size = 16, info = "ICE GIANT // LAND ON A CLOUD-TOP PLATFORM - GEAR REQUIRED" },
 	{ id = "Neptune", parent = "Sun", r = 340, w = 0.07, name = "NEPTUNE", col = C(60, 90, 220), size = 15, info = "ICE GIANT // LAND ON A CLOUD-TOP PLATFORM - GEAR REQUIRED" },
 	{ id = "Pluto", parent = "Sun", r = 378, w = 0.05, name = "PLUTO", col = C(190, 170, 150), size = 6, info = "DWARF PLANET // LANDING AVAILABLE - EXTREME COLD, GEAR REQUIRED" },
+	{ id = "Kuiper", parent = "Sun", r = 405, w = 0.04, name = "KUIPER BELT", col = C(160, 180, 215), size = 5, info = "ICY BELT BEYOND NEPTUNE // LANDING AVAILABLE - GEAR REQUIRED" },
+	{ id = "Oort", parent = "Sun", r = 520, w = 0.02, name = "OORT CLOUD", col = C(190, 215, 240), size = 6, info = "SHELL OF ICY COMETS // LANDING AVAILABLE - GEAR REQUIRED" },
+	{ id = "Interstellar", parent = "Sun", r = 640, w = 0.012, name = "INTERSTELLAR SPACE", col = C(140, 150, 190), size = 6, info = "BEYOND THE SUN'S REACH // VOYAGER PROBE - GEAR REQUIRED" },
+	{ id = "Alpha", parent = "Sun", r = 780, w = 0.004, noRing = true, name = "ALPHA CENTAURI A", col = C(255, 225, 150), size = 11, info = "NEAREST STAR SYSTEM // PROXIMA B LANDING - GEAR REQUIRED" },
+	{ id = "AlphaB", parent = "Alpha", r = 16, w = 1.4, noRing = true, name = "ALPHA CENTAURI B", col = C(255, 170, 90), size = 8, info = "NEAREST STAR SYSTEM // PROXIMA B LANDING - GEAR REQUIRED" },
 }
 local DEST = { Earth = "EARTH", Moon = "MOON", ISS = "ISS", Mars = "MARS", Mercury = "MERCURY", Venus = "VENUS", Io = "IO", Europa = "EUROPA", Pluto = "PLUTO",
-	Asteroids = "ASTEROID", Jupiter = "JUPITER", Saturn = "SATURN", Uranus = "URANUS", Neptune = "NEPTUNE" }
+	Asteroids = "ASTEROID", Jupiter = "JUPITER", Saturn = "SATURN", Uranus = "URANUS", Neptune = "NEPTUNE",
+	Kuiper = "KUIPER", Oort = "OORT", Interstellar = "INTERSTELLAR", Alpha = "ALPHA", AlphaB = "ALPHA" }
 local BODYMAP, ang, E = {}, {}, {}
 local zoom, pan, sel = 0.3, Vector2.zero, nil
 local lastPos = {}
@@ -1842,7 +1939,7 @@ for _, b in ipairs(BODIES) do
 	BODYMAP[b.id] = b
 	ang[b.id] = rng:NextNumber(0, 6.28)
 	local el = {}
-	if b.parent then
+	if b.parent and not b.noRing then
 		el.ring = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Size = UDim2.fromOffset(10, 10), ZIndex = 2 }, mapArea)
 		roundOff(el.ring)
 		stroke(el.ring, C(55, 90, 125), 1).Transparency = (b.parent == "Sun") and 0.45 or 0.6
@@ -1874,6 +1971,17 @@ for i = 1, 80 do
 	}, mapArea)
 	BELT[i] = { f = f, a = rng:NextNumber(0, 6.28), r = rng:NextNumber(172, 192), w = 0.22 + rng:NextNumber(-0.04, 0.04) }
 end
+local function extraBelt(n, r0, r1, w, color)
+	for _ = 1, n do
+		local f = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2, 2), BackgroundColor3 = color,
+			BackgroundTransparency = rng:NextNumber(0.2, 0.6), BorderSizePixel = 0, ZIndex = 2,
+		}, mapArea)
+		BELT[#BELT + 1] = { f = f, a = rng:NextNumber(0, 6.28), r = rng:NextNumber(r0, r1), w = w + rng:NextNumber(-0.01, 0.01) }
+	end
+end
+extraBelt(100, 360, 430, 0.04, C(150, 175, 215)) -- Kuiper belt
+extraBelt(160, 470, 570, 0.02, C(185, 210, 240)) -- Oort cloud
 
 -- map controls
 local function mapBtn(text, i)
@@ -1938,7 +2046,7 @@ for id, el in pairs(E) do
 	track(el.btn.Activated:Connect(function() selectBody(id) end))
 end
 
-local function clampZoom(z) return math.clamp(z, 0.15, 8) end
+local function clampZoom(z) return math.clamp(z, 0.06, 8) end
 track(zoomIn.Activated:Connect(function() zoom = clampZoom(zoom * 1.3) end))
 track(zoomOut.Activated:Connect(function() zoom = clampZoom(zoom / 1.3) end))
 track(fitBtn.Activated:Connect(function() zoom, pan = 0.3, Vector2.zero end))
@@ -1974,12 +2082,14 @@ end))
 
 local function locBodyId()
 	return ({ ISS = "ISS", MOON = "Moon", MARS = "Mars", MERCURY = "Mercury", VENUS = "Venus", IO = "Io", EUROPA = "Europa", PLUTO = "Pluto",
-		ASTEROID = "Asteroids", JUPITER = "Jupiter", SATURN = "Saturn", URANUS = "Uranus", NEPTUNE = "Neptune" })[loc] or "Earth"
+		ASTEROID = "Asteroids", JUPITER = "Jupiter", SATURN = "Saturn", URANUS = "Uranus", NEPTUNE = "Neptune",
+		KUIPER = "Kuiper", OORT = "Oort", INTERSTELLAR = "Interstellar", ALPHA = "Alpha" })[loc] or "Earth"
 end
 local LOCNAME = { EARTH = "EARTH PAD", ORBIT = "EARTH ORBIT", ISS = "ISS DOCKED", MOON = "LUNAR SURFACE",
 	MARS = "MARS SURFACE", MERCURY = "MERCURY SURFACE", VENUS = "VENUS SURFACE",
 	IO = "IO SURFACE", EUROPA = "EUROPA SURFACE", PLUTO = "PLUTO SURFACE",
-	ASTEROID = "ASTEROID BELT", JUPITER = "JUPITER CLOUDS", SATURN = "SATURN CLOUDS", URANUS = "URANUS CLOUDS", NEPTUNE = "NEPTUNE CLOUDS" }
+	ASTEROID = "ASTEROID BELT", JUPITER = "JUPITER CLOUDS", SATURN = "SATURN CLOUDS", URANUS = "URANUS CLOUDS", NEPTUNE = "NEPTUNE CLOUDS",
+	KUIPER = "KUIPER BELT", OORT = "OORT CLOUD", INTERSTELLAR = "INTERSTELLAR SPACE", ALPHA = "ALPHA CENTAURI" }
 local function updateTablet(dt)
 	local sz = mapArea.AbsoluteSize
 	local cx, cy = sz.X / 2 + pan.X, sz.Y / 2 + pan.Y
@@ -1994,8 +2104,10 @@ local function updateTablet(dt)
 		else
 			rad = b.r * ((b.parent == "Sun") and zoom or math.max(zoom, 0.8))
 			p = pos[b.parent] + Vector2.new(math.cos(ang[b.id]), math.sin(ang[b.id])) * rad
-			el.ring.Position = UDim2.fromOffset(pos[b.parent].X, pos[b.parent].Y)
-			el.ring.Size = UDim2.fromOffset(rad * 2, rad * 2)
+			if el.ring then
+				el.ring.Position = UDim2.fromOffset(pos[b.parent].X, pos[b.parent].Y)
+				el.ring.Size = UDim2.fromOffset(rad * 2, rad * 2)
+			end
 		end
 		pos[b.id] = p
 		lastPos[b.id] = p
@@ -2073,8 +2185,18 @@ local PAGES = {
 		left = "HAZARDS: the coldest atmosphere in the solar system, methane haze, and a world tipped on its side with thin vertical rings.\n\nBring the Jovian Pressure Seal, the Ring Debris Shield from Saturn and the Cryo Insulation Pack.\n\nA Methane Filter waits near the platform." },
 	{ title = "NEPTUNE", dest = "NEPTUNE", gear = {},
 		left = "HAZARDS: supersonic winds, dark storms and deep cold at the edge of the giant planets.\n\nBring the Ring Debris Shield, the Methane Filter from Uranus and the Ice Drill Bit from Europa." },
+	{ title = "KUIPER BELT", dest = "KUIPER", gear = { "BEACON" },
+		left = "HAZARDS: a vast ring of ice and rock beyond Neptune. It is dark, almost no sunlight, and bitterly cold.\n\nBring the Cryo Insulation Pack, the Ice Drill Bit from Europa and the Ring Debris Shield from Saturn.\n\nA Deep Space Beacon waits near the landing site." },
+	{ title = "OORT CLOUD", dest = "OORT", gear = { "COMET" },
+		left = "HAZARDS: a faraway shell of icy comets, so distant the Sun is just a bright star. Zero gravity and tumbling ice everywhere.\n\nBring the Deep Space Beacon from the Kuiper Belt, the Methane Filter from Uranus and the Gravity Stabilizer.\n\nA Comet Shield Plate waits near the landing site." },
+	{ title = "INTERSTELLAR SPACE", dest = "INTERSTELLAR", gear = { "WARPCAL" },
+		left = "Outside everything: no planet, no ground, just stars. The old Voyager probe still drifts here.\n\nBring the Comet Shield Plate, the Deep Space Beacon and the Ring Debris Shield. Your rocket stops next to the probe - float over and collect the Warp Calibrator.\n\nYou need it for Alpha Centauri." },
+	{ title = "ALPHA CENTAURI", dest = "ALPHA", gear = {},
+		left = "The nearest star system, with two suns and a red dwarf. You land on Proxima B under a twilight sky with two suns.\n\nBring the Warp Calibrator from interstellar space, the Comet Shield Plate, the Heat Shield Plating and an Oxygen Tank." },
+	{ title = "GOGGLES + BINOCULARS", tips = true,
+		left = "EARTH ONLY.\n\nNAME GOGGLES: tap the item in the hotbar to switch them on or off. The planets appear in the sky with their names above them.\n\nSUPER BINOCULARS: equip them to look through a scope. Tap a planet name on the right to lock on, hold ZOOM + to zoom forever, tap FREE LOOK to look around, and X to put them away.\n\nIf the sky is too bright, they still show. They do not work in space." },
 	{ title = "TIPS", tips = true,
-		left = "- Use + and - (or pinch) to zoom the chart, drag to move it.\n- FIT resets the chart. O centers on your selection.\n- The green ring on the chart is where you are.\n- On a landed rocket: walk back, tap Enter Rocket?, open the tablet and press GO again.\n- While parked in orbit, push the throttle up to fly freely.\n- Suggested order: ISS, Moon, Mars, Asteroid Belt, Mercury, Venus, Jupiter, Io, Europa, Saturn, Uranus, Neptune, Pluto.\n- Only the Sun and Titan are still placeholders." },
+		left = "- Use + and - (or pinch) to zoom the chart, drag to move it.\n- FIT resets the chart. O centers on your selection.\n- The green ring on the chart is where you are.\n- On a landed rocket: walk back, tap Enter Rocket?, open the tablet and press GO again.\n- While parked in orbit, push the throttle up to fly freely.\n- Suggested order: ISS, Moon, Mars, Asteroid Belt, Mercury, Venus, Jupiter, Io, Europa, Saturn, Uranus, Neptune, Pluto, Kuiper Belt, Oort Cloud, Interstellar Space, Alpha Centauri.\n- Only the Sun and Titan are still placeholders." },
 }
 local pageIdx = 1
 
@@ -2235,6 +2357,261 @@ onInvChanged = function()
 end
 
 ----------------------------------------------------------------
+-- SKY GEAR (on Earth): Name Goggles + Super Binoculars
+----------------------------------------------------------------
+local function initSkyGear()
+	local SKY_DIST = 12000
+	local SKY = {
+		{ key = "MOON", name = "THE MOON", ang = 0.7, az = 110, el = 42, info = "384,400 KM" },
+		{ key = "MERCURY", name = "MERCURY", ang = 0.22, az = 80, el = 11, info = "0.9 AU" },
+		{ key = "VENUS", name = "VENUS", ang = 0.45, az = 55, el = 30, info = "0.28 AU - NEAREST PLANET" },
+		{ key = "MARS", name = "MARS", ang = 0.3, az = -50, el = 38, info = "1.5 AU" },
+		{ key = "JUPITER", name = "JUPITER", ang = 0.55, az = 150, el = 55, info = "4.2 AU" },
+		{ key = "SATURN", name = "SATURN", ang = 0.5, az = -140, el = 36, info = "8.5 AU" },
+		{ key = "URANUS", name = "URANUS", ang = 0.22, az = 20, el = 64, info = "18.9 AU" },
+		{ key = "NEPTUNE", name = "NEPTUNE", ang = 0.2, az = -108, el = 22, info = "29.8 AU" },
+	}
+	local gogglesOn, binoActive, shown = false, false, false
+	local built = false
+	local zoom, zoomDir, lockIdx = 1, 0, nil
+	local drift, accum = 0, 1
+	local fogSave = nil
+
+	-- ===== GUI (own top layer) =====
+	local skyGui = Instance.new("ScreenGui")
+	skyGui.Name = "NasaSkyGui"
+	skyGui.ResetOnSpawn = false
+	skyGui.DisplayOrder = 150
+	skyGui.IgnoreGuiInset = true
+	skyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	skyGui.Parent = gui.Parent
+
+	local badge = new("TextLabel", {
+		Text = "NAME GOGGLES: ON", Font = Enum.Font.SciFi, TextSize = 16, TextColor3 = CYAN, BackgroundColor3 = BG,
+		BackgroundTransparency = 0.25, Position = UDim2.new(0, 10, 0, 44), Size = UDim2.fromOffset(170, 26), Visible = false,
+	}, skyGui)
+	corner(badge, 6) stroke(badge, CYAN, 1)
+
+	local scope = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false }, skyGui)
+	local function bar() return new("Frame", { BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0 }, scope) end
+	local barT, barB, barL, barR = bar(), bar(), bar(), bar()
+	local lens = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		Size = UDim2.fromScale(0.82, 0.82), BackgroundTransparency = 1,
+	}, scope)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, lens)
+	new("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 170, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, lens)
+	new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = GREEN, BackgroundTransparency = 0.5, BorderSizePixel = 0 }, lens)
+	new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = GREEN, BackgroundTransparency = 0.5, BorderSizePixel = 0 }, lens)
+
+	local function btn(text, pos, size, col)
+		local b = new("TextButton", {
+			Text = text, Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = col or CYAN, BackgroundColor3 = PANEL,
+			AutoButtonColor = true, Position = pos, Size = size, ZIndex = 5,
+		}, scope)
+		corner(b, 6) stroke(b, col or CYAN, 1.5)
+		return b
+	end
+	local zoomLbl = new("TextLabel", {
+		Text = "ZOOM x1", Font = Enum.Font.Code, TextSize = 17, TextColor3 = GREEN, BackgroundTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(10, 8), Size = UDim2.fromOffset(200, 26), ZIndex = 5,
+	}, scope)
+	local zoomInBtn = btn("ZOOM +  (HOLD)", UDim2.fromOffset(10, 40), UDim2.fromOffset(150, 56), GREEN)
+	local zoomOutBtn = btn("ZOOM -  (HOLD)", UDim2.fromOffset(10, 104), UDim2.fromOffset(150, 56), AMBER)
+	local exitBtn = btn("X  PUT AWAY", UDim2.fromOffset(10, 168), UDim2.fromOffset(150, 40), RED)
+	local lockBtns = {}
+	local function lockBtn(label, idx)
+		local b = btn(label, UDim2.new(1, -124, 0, 8 + (idx) * 30), UDim2.fromOffset(114, 26), idx == 0 and AMBER or CYAN)
+		lockBtns[idx] = b
+		track(b.Activated:Connect(function()
+			sfx(CFG.SOUNDS.click, 0.5, 1)
+			lockIdx = (idx > 0) and idx or nil
+			if idx > 0 then zoom = math.max(zoom, 1) end
+		end))
+	end
+	lockBtn("FREE LOOK", 0)
+	for i, e in ipairs(SKY) do lockBtn(e.name, i) end
+	local function holdBtn(b, dir)
+		track(b.InputBegan:Connect(function(i)
+			if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+				zoomDir = dir
+			end
+		end))
+		track(b.InputEnded:Connect(function(i)
+			if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+				if zoomDir == dir then zoomDir = 0 end
+			end
+		end))
+	end
+	holdBtn(zoomInBtn, 1)
+	holdBtn(zoomOutBtn, -1)
+
+	-- ===== sky planets =====
+	local function ensureModels()
+		if built then return end
+		built = true
+		for _, e in ipairs(SKY) do
+			local m = buildPlanetSphere(e.key)
+			local dia = 2 * SKY_DIST * math.tan(math.rad(e.ang / 2))
+			m:ScaleTo(dia / 2000)
+			e.model = m
+			e.radius = dia / 2
+			local bb = Instance.new("BillboardGui")
+			bb.Size = UDim2.fromOffset(170, 44)
+			bb.AlwaysOnTop = true
+			bb.MaxDistance = math.huge
+			bb.LightInfluence = 0
+			bb.SizeOffset = Vector2.new(0, -1)
+			bb.Enabled = false
+			bb.Parent = m.PrimaryPart
+			new("TextLabel", {
+				Text = e.name, Font = Enum.Font.GothamBold, TextSize = 19, TextColor3 = Color3.new(1, 1, 1), TextStrokeTransparency = 0.2,
+				BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24),
+			}, bb)
+			new("TextLabel", {
+				Text = e.info, Font = Enum.Font.Code, TextSize = 12, TextColor3 = Color3.fromRGB(150, 230, 255), TextStrokeTransparency = 0.3,
+				BackgroundTransparency = 1, Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 16),
+			}, bb)
+			e.bb = bb
+		end
+	end
+
+	local function showSky()
+		if shown then return end
+		shown = true
+		ensureModels()
+		for _, e in ipairs(SKY) do e.model.Parent = worldFolder end
+		fogSave = { Lighting.FogEnd, Lighting.FogStart }
+		Lighting.FogEnd = 1e6
+		Lighting.FogStart = 1e5
+		accum = 1
+	end
+	local function hideSky()
+		if not shown then return end
+		shown = false
+		for _, e in ipairs(SKY) do if e.model then e.model.Parent = nil end end
+		if fogSave then
+			Lighting.FogEnd, Lighting.FogStart = fogSave[1], fogSave[2]
+			fogSave = nil
+		end
+	end
+
+	local function placeAll(camPos, all)
+		for i, e in ipairs(SKY) do
+			local az, el = math.rad(e.az) + drift, math.rad(e.el)
+			local dir = Vector3.new(math.cos(el) * math.sin(az), math.sin(el), -math.cos(el) * math.cos(az))
+			local locked = (lockIdx == i and binoActive)
+			if all or locked then
+				local d = SKY_DIST
+				if locked then
+					local k = math.max(1, zoom / baseFOV) -- zoom beyond the camera's narrowest view = fly closer
+					d = math.max(SKY_DIST / k, e.radius * 1.05)
+				end
+				e.model:PivotTo(CFrame.new(camPos + dir * d) * CFrame.Angles(0, drift * 3 + i, 0))
+			end
+		end
+	end
+
+	-- ===== tool hooks =====
+	onBinoEquip = function()
+		local c = player.Character
+		local h = c and c:FindFirstChildOfClass("Humanoid")
+		if spaceMode or inside then
+			toast("BINOCULARS ONLY WORK ON EARTH", RED)
+			if h then task.defer(function() h:UnequipTools() end) end
+			return
+		end
+		binoActive = true
+		zoom, zoomDir, lockIdx = 1, 0, nil
+		scope.Visible = true
+	end
+	onBinoUnequip = function()
+		binoActive = false
+		zoomDir = 0
+		scope.Visible = false
+		camera.FieldOfView = baseFOV
+		if camera.CameraType == Enum.CameraType.Scriptable and not inside then
+			camera.CameraType = Enum.CameraType.Custom
+			local c = player.Character
+			local h = c and c:FindFirstChildOfClass("Humanoid")
+			if h then camera.CameraSubject = h end
+		end
+		if not gogglesOn then hideSky() end
+	end
+	onGogglesToggle = function(force)
+		if force ~= nil then gogglesOn = force else gogglesOn = not gogglesOn end
+		badge.Visible = gogglesOn
+		if force == nil then toast(gogglesOn and "NAME GOGGLES ON - LOOK UP" or "NAME GOGGLES OFF", CYAN) end
+		if not gogglesOn and not binoActive then hideSky() end
+	end
+	track(exitBtn.Activated:Connect(function()
+		local c = player.Character
+		local h = c and c:FindFirstChildOfClass("Humanoid")
+		if h then h:UnequipTools() end
+	end))
+
+	-- ===== per-frame =====
+	track(RunService.RenderStepped:Connect(function(dt)
+		local visible = (gogglesOn or binoActive) and not spaceMode and not inside
+		if not visible then
+			if shown then hideSky() end
+			if binoActive and (spaceMode or inside) then
+				binoActive = false
+				scope.Visible = false
+			end
+			return
+		end
+		if not shown then showSky() end
+		local c = player.Character
+		local head = c and c:FindFirstChild("Head")
+		local camPos = head and head.Position or camera.CFrame.Position
+		drift = drift + dt * 0.004
+		accum = accum + dt
+		local all = accum > 0.5
+		if all then accum = 0 end
+		placeAll(camPos, all)
+
+		if gogglesOn then
+			local H = skyGui.AbsoluteSize.Y
+			local fov = math.tan(math.rad(math.max(camera.FieldOfView, 1)) / 2)
+			for _, e in ipairs(SKY) do
+				e.bb.Enabled = true
+				local d = (e.model.PrimaryPart.Position - camera.CFrame.Position).Magnitude
+				local px = e.radius / math.max(d, 1) / fov * (H / 2)
+				e.bb.SizeOffset = Vector2.new(0, -(1 + math.min(px, 1500) / 44))
+			end
+		else
+			for _, e in ipairs(SKY) do e.bb.Enabled = false end
+		end
+
+		if binoActive then
+			if zoomDir ~= 0 then zoom = math.clamp(zoom * 4 ^ (zoomDir * dt), 1, 1e9) end
+			camera.FieldOfView = math.clamp(baseFOV / zoom, 1, baseFOV)
+			zoomLbl.Text = "ZOOM x" .. string.format("%.0f", zoom)
+			if lockIdx then
+				camera.CameraType = Enum.CameraType.Scriptable
+				camera.CFrame = CFrame.lookAt(camPos, SKY[lockIdx].model.PrimaryPart.Position)
+			elseif camera.CameraType == Enum.CameraType.Scriptable then
+				camera.CameraType = Enum.CameraType.Custom
+				local h = c and c:FindFirstChildOfClass("Humanoid")
+				if h then camera.CameraSubject = h end
+			end
+			for idx, b in pairs(lockBtns) do
+				b.BackgroundColor3 = ((idx == 0 and not lockIdx) or idx == lockIdx) and Color3.fromRGB(0, 90, 110) or PANEL
+			end
+			local W, H = skyGui.AbsoluteSize.X, skyGui.AbsoluteSize.Y
+			local D = 0.82 * H
+			local sideW, topH = math.max(0, (W - D) / 2), math.max(0, (H - D) / 2)
+			barT.Position, barT.Size = UDim2.fromOffset(0, 0), UDim2.fromOffset(W, topH)
+			barB.Position, barB.Size = UDim2.fromOffset(0, H - topH), UDim2.fromOffset(W, topH)
+			barL.Position, barL.Size = UDim2.fromOffset(0, topH), UDim2.fromOffset(sideW, D)
+			barR.Position, barR.Size = UDim2.fromOffset(W - sideW, topH), UDim2.fromOffset(sideW, D)
+		end
+	end))
+end
+initSkyGear()
+
+----------------------------------------------------------------
 -- TRAVEL (light speed warp + landing / docking)
 ----------------------------------------------------------------
 local function arriveLand(r, key)
@@ -2287,7 +2664,7 @@ travel = function(dest)
 			local from = loc
 			r.ignite = true
 			r.forceThr = 0.5
-			if PLANETS[from] then
+			if PLANETS[from] and not PLANETS[from].deep then
 				setStatus("LIFTING OFF FROM " .. PLANETS[from].name, AMBER)
 				sfx(CFG.SOUNDS.ignite, 0.9, 1)
 				local y0 = r.pos.Y
@@ -2307,6 +2684,12 @@ travel = function(dest)
 			warpSeq(r, 6, function()
 				if dest == "ISS" then
 					arriveOrbit(r)
+				elseif PLANETS[dest] and PLANETS[dest].deep then
+					showScene(dest)
+					r.baseRot = CFrame.new().Rotation
+					r.pitch, r.roll = 0, 0
+					r.pos = PLANETS[dest].origin + Vector3.new(70, 20, 1010)
+					setPivot(r)
 				else
 					-- drop out of warp in deep space, with the destination as a big round sphere ahead
 					showApproach(dest)
@@ -2318,7 +2701,20 @@ travel = function(dest)
 			end)
 			if r.dead then return end
 
-			if PLANETS[dest] then
+			if PLANETS[dest] and PLANETS[dest].deep then
+				local P = PLANETS[dest]
+				setStatus("DECELERATING INTO " .. P.name, AMBER)
+				local start, target = r.pos, P.origin + Vector3.new(70, 20, 110)
+				frames(r, 6, function(a)
+					local e = 1 - (1 - a) ^ 2
+					r.pos = start:Lerp(target, e)
+					setPivot(r)
+					r.forceThr = 0.1 + 0.5 * (1 - a)
+				end)
+				loc = dest
+				toast(P.arrive, GREEN)
+				setStatus("DRIFTING IN " .. P.name .. " - ZERO GRAVITY", GREEN)
+			elseif PLANETS[dest] then
 				local P = PLANETS[dest]
 				setStatus(P.name .. " IN SIGHT - BRAKING BURN", AMBER)
 				approachIn(r, dest, P.startH, P.landT)
@@ -2386,11 +2782,13 @@ SpaceCleanup = function()
 	restoreEnv()
 	spaceMode, loc, scene = false, "EARTH", nil
 	if closeTablet then closeTablet() end
-	for _, k in ipairs({ "earth", "clouds", "moon", "iss", "sun", "stars", "approach" }) do
+	for _, k in ipairs({ "earth", "clouds", "moon", "iss", "sun", "stars", "approach", "sun2" }) do
 		if SP[k] then SP[k]:Destroy() SP[k] = nil end
 	end
 	engineSnd:Stop()
 	windSnd:Stop()
+	if onBinoUnequip then pcall(onBinoUnequip) end
+	if onGogglesToggle then pcall(onGogglesToggle, false) end
 	if SP.surface then SP.surface:Destroy() SP.surface = nil end
 	if warpM then warpM:Destroy() warpM = nil end
 	camera.FieldOfView = baseFOV
@@ -2680,6 +3078,40 @@ local function giveTool()
 			if h then task.defer(function() h:UnequipTools() end) end
 		end
 	end)
+
+	if binoTool then binoTool:Destroy() end
+	binoTool = Instance.new("Tool")
+	binoTool.Name = "Super Binoculars"
+	binoTool.ToolTip = "Super Binoculars (infinite zoom, Earth only)"
+	binoTool.RequiresHandle = false
+	binoTool.CanBeDropped = false
+	binoTool.Parent = bp
+	local bn = binoTool
+	bn:GetPropertyChangedSignal("Parent"):Connect(function()
+		local c = player.Character
+		if c and bn.Parent == c then
+			if onBinoEquip then onBinoEquip() end
+		else
+			if onBinoUnequip then onBinoUnequip() end
+		end
+	end)
+
+	if gogglesTool then gogglesTool:Destroy() end
+	gogglesTool = Instance.new("Tool")
+	gogglesTool.Name = "Name Goggles"
+	gogglesTool.ToolTip = "Name Goggles (tap to toggle)"
+	gogglesTool.RequiresHandle = false
+	gogglesTool.CanBeDropped = false
+	gogglesTool.Parent = bp
+	local gt = gogglesTool
+	gt:GetPropertyChangedSignal("Parent"):Connect(function()
+		local c = player.Character
+		if c and gt.Parent == c then
+			if onGogglesToggle then onGogglesToggle() end
+			local h = c:FindFirstChildOfClass("Humanoid")
+			if h then task.defer(function() h:UnequipTools() end) end
+		end
+	end)
 end
 
 local function tryPlace(screenPos)
@@ -2743,6 +3175,8 @@ genv.NASA_ROCKET_CLEANUP = function()
 	if carryModel then carryModel:Destroy() end
 	if tool then tool:Destroy() end
 	if bookTool then bookTool:Destroy() end
+	if binoTool then binoTool:Destroy() end
+	if gogglesTool then gogglesTool:Destroy() end
 	destroyRocket()
 	worldFolder:Destroy()
 	for _, n in ipairs({ "NasaEngineLoop", "NasaWindLoop" }) do
@@ -2751,6 +3185,8 @@ genv.NASA_ROCKET_CLEANUP = function()
 	end
 	local bg = gui.Parent and gui.Parent:FindFirstChild("NasaBookGui")
 	if bg then bg:Destroy() end
+	local sg2 = gui.Parent and gui.Parent:FindFirstChild("NasaSkyGui")
+	if sg2 then sg2:Destroy() end
 	gui:Destroy()
 	camera.CameraType = Enum.CameraType.Custom
 	local _, hum, hrp = getChar()
