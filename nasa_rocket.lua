@@ -1845,59 +1845,90 @@ local PAGES = {
 }
 local pageIdx = 1
 
-local book = new("Frame", {
-	Name = "TutorialBook", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromScale(0.8, 0.88), BackgroundColor3 = Color3.fromRGB(88, 55, 32), Visible = false, ZIndex = 60,
-}, gui)
-new("UISizeConstraint", { MaxSize = Vector2.new(780, 470), MinSize = Vector2.new(320, 230) }, book)
-corner(book, 14) stroke(book, Color3.fromRGB(190, 150, 70), 3)
+-- The book lives in its OWN ScreenGui (drawn above everything), pages scroll, and there are
+-- several ways to close it: X, CLOSE, tapping outside the book, or Escape.
+local bookGui = Instance.new("ScreenGui")
+bookGui.Name = "NasaBookGui"
+bookGui.ResetOnSpawn = false
+bookGui.DisplayOrder = 200
+bookGui.IgnoreGuiInset = true
+bookGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+bookGui.Enabled = false
+bookGui.Parent = gui.Parent
+
+local GOLD = Color3.fromRGB(235, 200, 110)
 local INK = Color3.fromRGB(50, 35, 20)
 local PARCH = Color3.fromRGB(233, 222, 196)
-local bookTitle = new("TextLabel", {
-	Text = "SPACE TUTORIAL BOOK", Font = Enum.Font.Antique, TextScaled = true, TextColor3 = Color3.fromRGB(235, 200, 110),
-	BackgroundTransparency = 1, Position = UDim2.fromScale(0.05, 0.015), Size = UDim2.fromScale(0.8, 0.08),
+local COVER = Color3.fromRGB(60, 36, 20)
+
+local backdrop = new("TextButton", {
+	Text = "", AutoButtonColor = false, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45,
+	BorderSizePixel = 0, Size = UDim2.fromScale(1, 1), ZIndex = 1,
+}, bookGui)
+
+local book = new("Frame", {
+	Name = "TutorialBook", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(0.86, 0.88), BackgroundColor3 = Color3.fromRGB(88, 55, 32), Active = true, ZIndex = 2,
+}, bookGui)
+new("UISizeConstraint", { MaxSize = Vector2.new(820, 480), MinSize = Vector2.new(300, 200) }, book)
+corner(book, 14) stroke(book, Color3.fromRGB(190, 150, 70), 3)
+
+new("TextLabel", {
+	Text = "SPACE TUTORIAL BOOK", Font = Enum.Font.Antique, TextSize = 22, TextColor3 = GOLD,
+	TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1,
+	Position = UDim2.new(0, 14, 0, 6), Size = UDim2.new(0.6, 0, 0, 34),
+}, book)
+local pageLbl = new("TextLabel", {
+	Text = "", Font = Enum.Font.Code, TextSize = 16, TextColor3 = GOLD, BackgroundTransparency = 1,
+	AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -66, 0, 6), Size = UDim2.new(0, 90, 0, 34),
 }, book)
 local bookClose = new("TextButton", {
-	Text = "X", Font = Enum.Font.GothamBold, TextScaled = true, TextColor3 = Color3.fromRGB(235, 200, 110),
-	BackgroundColor3 = Color3.fromRGB(60, 36, 20), AutoButtonColor = false,
-	Position = UDim2.fromScale(0.91, 0.015), Size = UDim2.fromScale(0.07, 0.08),
+	Text = "X", Font = Enum.Font.GothamBold, TextSize = 22, TextColor3 = Color3.fromRGB(255, 140, 120),
+	BackgroundColor3 = COVER, AutoButtonColor = true, AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -8, 0, 6), Size = UDim2.fromOffset(48, 34), ZIndex = 5,
 }, book)
-corner(bookClose, 6)
+corner(bookClose, 8) stroke(bookClose, Color3.fromRGB(190, 150, 70), 1.5)
 
 local function page(x)
-	local f = new("Frame", { Position = UDim2.fromScale(x, 0.11), Size = UDim2.fromScale(0.455, 0.78), BackgroundColor3 = PARCH }, book)
+	local f = new("Frame", {
+		Position = UDim2.new(x, 0, 0, 46), Size = UDim2.new(0.465, 0, 1, -104), BackgroundColor3 = PARCH, ZIndex = 3,
+	}, book)
 	corner(f, 6)
 	local head = new("TextLabel", {
-		Text = "", Font = Enum.Font.Antique, TextScaled = true, TextColor3 = Color3.fromRGB(120, 40, 30), TextXAlignment = Enum.TextXAlignment.Left,
-		BackgroundTransparency = 1, Position = UDim2.fromScale(0.05, 0.03), Size = UDim2.fromScale(0.9, 0.1),
+		Text = "", Font = Enum.Font.Antique, TextSize = 19, TextColor3 = Color3.fromRGB(120, 40, 30),
+		TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1,
+		Position = UDim2.new(0, 10, 0, 4), Size = UDim2.new(1, -20, 0, 28), ZIndex = 4,
+	}, f)
+	local scroll = new("ScrollingFrame", {
+		BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 6,
+		Position = UDim2.new(0, 8, 0, 34), Size = UDim2.new(1, -16, 1, -40), ZIndex = 4,
+		CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 	}, f)
 	local body = new("TextLabel", {
-		Text = "", Font = Enum.Font.Antique, TextScaled = true, TextWrapped = true, RichText = true, TextColor3 = INK,
+		Text = "", Font = Enum.Font.Antique, TextSize = 15, TextWrapped = true, RichText = true, TextColor3 = INK,
 		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.05, 0.15), Size = UDim2.fromScale(0.9, 0.82),
-	}, f)
-	new("UITextSizeConstraint", { MaxTextSize = 17, MinTextSize = 6 }, body)
-	return head, body
+		AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, -8, 0, 0), ZIndex = 4,
+	}, scroll)
+	return head, body, scroll
 end
-local leftHead, leftBody = page(0.03)
-local rightHead, rightBody = page(0.515)
-new("Frame", { Position = UDim2.fromScale(0.4925, 0.11), Size = UDim2.fromScale(0.015, 0.78), BackgroundColor3 = Color3.fromRGB(60, 36, 20), BorderSizePixel = 0 }, book)
+local leftHead, leftBody, leftScroll = page(0.02)
+local rightHead, rightBody, rightScroll = page(0.515)
+new("Frame", { Position = UDim2.new(0.4925, -2, 0, 46), Size = UDim2.new(0, 4, 1, -104), BackgroundColor3 = COVER, BorderSizePixel = 0, ZIndex = 3 }, book)
 
-local function navBtn2(text, x)
+local function navBtn2(text, anchorX, px)
 	local b = new("TextButton", {
-		Text = text, Font = Enum.Font.GothamBold, TextScaled = true, TextColor3 = Color3.fromRGB(235, 200, 110),
-		BackgroundColor3 = Color3.fromRGB(60, 36, 20), AutoButtonColor = false,
-		Position = UDim2.fromScale(x, 0.915), Size = UDim2.fromScale(0.16, 0.07),
+		Text = text, Font = Enum.Font.GothamBold, TextSize = 17, TextColor3 = GOLD, BackgroundColor3 = COVER,
+		AutoButtonColor = true, AnchorPoint = Vector2.new(anchorX, 1), Position = UDim2.new(px, 0, 1, -8),
+		Size = UDim2.fromOffset(104, 40), ZIndex = 5,
 	}, book)
-	corner(b, 6)
-	new("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3) }, b)
+	corner(b, 8) stroke(b, Color3.fromRGB(190, 150, 70), 1.5)
 	return b
 end
-local prevBtn, nextBtn = navBtn2("< PREV", 0.03), navBtn2("NEXT >", 0.81)
-local pageLbl = new("TextLabel", {
-	Text = "", Font = Enum.Font.Code, TextScaled = true, TextColor3 = Color3.fromRGB(235, 200, 110), BackgroundTransparency = 1,
-	Position = UDim2.fromScale(0.4, 0.92), Size = UDim2.fromScale(0.2, 0.06),
-}, book)
+local prevBtn = navBtn2("< PREV", 0, 0.02)
+local closeBottom = navBtn2("CLOSE", 0.5, 0.5)
+local nextBtn = navBtn2("NEXT >", 1, 0.98)
+closeBottom.TextColor3 = Color3.fromRGB(255, 140, 120)
 
 local function itemLine(id)
 	local it = ITEMS[id]
@@ -1905,31 +1936,37 @@ local function itemLine(id)
 	return tag .. " <b>" .. it.name .. "</b>\n      <i>" .. it.where .. "</i>"
 end
 
+local function sortedItemIds()
+	local t = {}
+	for id in pairs(ITEMS) do t[#t + 1] = id end
+	table.sort(t)
+	return t
+end
+
 local function renderPage()
 	local p = PAGES[pageIdx]
 	leftHead.Text = p.title
 	leftBody.Text = p.left
 	pageLbl.Text = pageIdx .. " / " .. #PAGES
-	local t = {}
+	local lines = {}
 	if p.index then
 		rightHead.Text = "GEAR INDEX"
-		for id in pairs(ITEMS) do t[#t + 1] = id end
-		table.sort(t)
-		for i, id in ipairs(t) do t[i] = itemLine(id) end
-		rightBody.Text = table.concat(t, "\n")
+		for _, id in ipairs(sortedItemIds()) do lines[#lines + 1] = itemLine(id) end
+		rightBody.Text = table.concat(lines, "\n")
 	elseif p.tips then
 		rightHead.Text = "YOUR GEAR"
-		for id in pairs(ITEMS) do t[#t + 1] = id end
-		table.sort(t)
-		for i, id in ipairs(t) do t[i] = (inv[id] and '<font color="#1f8a3a">[OK]</font> ' or '<font color="#b02a2a">[--]</font> ') .. ITEMS[id].name end
-		rightBody.Text = table.concat(t, "\n")
+		for _, id in ipairs(sortedItemIds()) do
+			lines[#lines + 1] = (inv[id] and '<font color="#1f8a3a">[OK]</font> ' or '<font color="#b02a2a">[--]</font> ') .. ITEMS[id].name
+		end
+		rightBody.Text = table.concat(lines, "\n")
 	else
 		rightHead.Text = REQS[p.dest] and "REQUIRED GEAR" or "NO GEAR NEEDED"
 		local s = ""
 		if REQS[p.dest] then
 			for _, id in ipairs(REQS[p.dest]) do s = s .. itemLine(id) .. "\n" end
 			local miss = missingFor(p.dest)
-			s = s .. "\n" .. (#miss == 0 and '<b><font color="#1f8a3a">READY - YOU WILL SURVIVE</font></b>' or '<b><font color="#b02a2a">NOT SURVIVABLE YET</font></b>')
+			s = s .. "\n" .. (#miss == 0 and '<b><font color="#1f8a3a">READY - YOU WILL SURVIVE</font></b>'
+				or '<b><font color="#b02a2a">NOT SURVIVABLE YET</font></b>')
 		else
 			s = "This destination is safe.\n"
 		end
@@ -1939,20 +1976,29 @@ local function renderPage()
 		end
 		rightBody.Text = s
 	end
+	leftScroll.CanvasPosition = Vector2.zero
+	rightScroll.CanvasPosition = Vector2.zero
 end
 
+local function closeBook() bookGui.Enabled = false end
 openBook = function()
-	renderPage()
-	book.Visible = true
+	local ok, err = pcall(renderPage)
+	if not ok then warn("[NasaRocket] book: " .. tostring(err)) end
+	bookGui.Enabled = true
 end
-local function closeBook() book.Visible = false end
+
 track(bookClose.Activated:Connect(closeBook))
+track(closeBottom.Activated:Connect(closeBook))
+track(backdrop.Activated:Connect(closeBook))
+track(UIS.InputBegan:Connect(function(i)
+	if bookGui.Enabled and i.KeyCode == Enum.KeyCode.Escape then closeBook() end
+end))
 track(prevBtn.Activated:Connect(function() pageIdx = (pageIdx - 2) % #PAGES + 1 renderPage() end))
 track(nextBtn.Activated:Connect(function() pageIdx = pageIdx % #PAGES + 1 renderPage() end))
 track(helpBtn.Activated:Connect(function() press(helpBtn) openBook() end))
 onInvChanged = function()
 	if tabletOpen then refreshInfo() end
-	if book.Visible then renderPage() end
+	if bookGui.Enabled then renderPage() end
 end
 
 ----------------------------------------------------------------
@@ -2406,6 +2452,8 @@ genv.NASA_ROCKET_CLEANUP = function()
 	if bookTool then bookTool:Destroy() end
 	destroyRocket()
 	worldFolder:Destroy()
+	local bg = gui.Parent and gui.Parent:FindFirstChild("NasaBookGui")
+	if bg then bg:Destroy() end
 	gui:Destroy()
 	camera.CameraType = Enum.CameraType.Custom
 	local _, hum, hrp = getChar()
